@@ -1,0 +1,22 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Alien",
+      "assigned_at": "2026-04-29",
+      "assignment_id": "init-2026-04-29"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "init-2026-04-29": {
+      "universe": "Alien",
+      "members": {
+        "apone": "Apone",
+        "ferro": "Ferro",
+        "hicks": "Hicks",
+        "bishop": "Bishop",
+        "vasquez": "Vasquez"
+      },
+      "created_at": "2026-04-29"
+    }
+  }
+}
