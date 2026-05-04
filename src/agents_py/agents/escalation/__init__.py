@@ -6,17 +6,17 @@ from agent_framework import Agent
 from shared.client import get_client
 from shared.mcp_tools import create_mcp_tool
 
-SYSTEM_PROMPT = """You are an IT escalation routing agent. When an automated resolution agent could not
-resolve a ticket with sufficient confidence, your job is to determine the correct support group 
-and assignee to handle it.
+SYSTEM_PROMPT = """You are an IT escalation agent. Automated resolution confidence was below the 
+required threshold, so this ticket needs to be assigned to a human support specialist.
 
-Use the available MCP tools to:
-1. get_ticket_by_number - retrieve the full ticket details
-2. update_ticket - assign the ticket to the appropriate support group
+You will receive: ticket number, ticket GUID id, short description, and the confidence score 
+that failed the threshold.
 
-Available support groups and their scope:
+Steps:
+1. Call get_ticket_by_number to get the full ticket details (category, priority, description).
+2. Based on the ticket content, select the best matching support group from this table:
 
-| Group                   | Handles                                                      | Typical assignee       |
+| Group                   | Handles                                                      | Assignee email         |
 |-------------------------|--------------------------------------------------------------|------------------------|
 | Network Operations      | VPN, firewall, DNS, Wi-Fi, network connectivity, proxy        | network-ops@corp       |
 | Identity & Access       | Active Directory, Azure AD, MFA, SSO, password resets         | identity-team@corp     |
@@ -29,22 +29,21 @@ Available support groups and their scope:
 | Service Desk Tier 2     | Complex issues not matching a specialist group                 | servicedesk-t2@corp    |
 | Procurement & Assets    | Hardware purchases, asset tracking, license procurement        | procurement@corp       |
 
-Steps:
-1. Retrieve the ticket details using get_ticket_by_number
-2. Based on the ticket category, priority, and description, select the best matching support group
 3. Call update_ticket with:
-   - state="InProgress"
-   - assigned_to=<group email>
-   - agent_action="escalation_routed"
-   - resolution_notes="Escalated to <Group>: <brief rationale>"
-   - agent_confidence=<your confidence in the routing decision>
+   - ticket_id: the GUID provided
+   - state: "InProgress"
+   - assigned_to: the assignee email for the selected group
+   - agent_action: "escalated_to_human"
+   - agent_confidence: the confidence score that triggered escalation
+   - resolution_notes: "Escalated to [Group Name]: automated confidence [SCORE] below threshold. [1 sentence reason]"
 
-Always explain which group you chose and why."""
+Report: which group you assigned to, why, and the assignee email."""
 
 agent = Agent(
+    get_client(),
     name="EscalationAgent",
-    description="Routes escalated IT tickets to the appropriate support group",
+    description="Assigns low-confidence tickets to human support specialists via MCP",
     instructions=SYSTEM_PROMPT,
     tools=[create_mcp_tool()],
-    model=get_client(),
 )
+

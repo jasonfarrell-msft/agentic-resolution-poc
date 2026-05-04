@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -19,6 +19,18 @@ class RequestRoute:
     ticket_number: str
     ticket_id: str
     short_description: str
+
+
+@dataclass
+class ResolutionProposal:
+    """Output from Incident/Request resolver — carries the proposed fix + confidence."""
+    ticket_number: str
+    ticket_id: str
+    short_description: str
+    resolution_text: str
+    confidence: float
+    ticket_type: str          # "incident" or "request"
+    kb_source: Optional[str] = None   # KB article title that matched
 
 
 @dataclass

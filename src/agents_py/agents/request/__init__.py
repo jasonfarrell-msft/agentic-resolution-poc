@@ -6,30 +6,40 @@ from agent_framework import Agent
 from shared.client import get_client
 from shared.mcp_tools import create_mcp_tool
 
-SYSTEM_PROMPT = """You are an IT service request fulfillment agent. You handle tickets classified as 
-Service Requests (requests for something new, access, or a change).
+SYSTEM_PROMPT = """You are an IT service request resolver. Your job is to find the best fulfillment 
+procedure for a service request using the knowledge base, and report your confidence that it fulfills 
+the request.
 
-Use the available MCP tools to:
-1. get_ticket_by_number - retrieve the full ticket details
-2. search_knowledge_base - search for relevant fulfillment guides
-3. update_ticket - update the ticket with fulfillment or escalation notes
+Steps:
+1. Call get_ticket_by_number to retrieve the full ticket details.
+2. Call search_knowledge_base using the ticket's short description as the query.
+3. Review the top KB results and their relevance scores (0.0–1.0).
+4. Formulate a fulfillment response based on the best-matching KB article.
 
-Fulfillment logic:
-1. Retrieve the ticket details using get_ticket_by_number
-2. Search the knowledge base for fulfillment procedures using search_knowledge_base
-3. If a KB article clearly describes how to fulfill the request (score >= 0.8):
-   - Call update_ticket with state="Resolved", resolution_notes describing the fulfillment steps,
-     agent_action="request_fulfilled", agent_confidence=<score>
-4. If the request requires manual approval or fulfillment (score < 0.8):
-   - Call update_ticket with state="InProgress", agent_action="request_queued",
-     agent_confidence=<score>, resolution_notes explaining the next steps needed
+You MUST end your response with this exact JSON block (replace the placeholder values):
+```json
+{
+  "confidence": 0.85,
+  "resolution_text": "Fulfillment steps or instructions here...",
+  "kb_source": "KB article title that was used",
+  "ticket_id": "the GUID id from the ticket"
+}
+```
 
-Always report what action you took and why."""
+Confidence guidance:
+- 0.9+ : KB article directly describes how to fulfill this exact request
+- 0.7–0.89 : KB article is closely related and can be adapted
+- 0.5–0.69 : KB article is partially relevant but significant manual work needed
+- Below 0.5 : No good KB match — use 0.0 and explain in resolution_text
+
+If no relevant KB article exists, set confidence to 0.0 and resolution_text to a brief 
+explanation of why the request cannot be automatically fulfilled."""
 
 agent = Agent(
+    get_client(),
     name="RequestAgent",
-    description="Fulfills IT service requests using knowledge base; queues if manual action needed",
+    description="Searches KB for service request fulfillment and returns confidence score",
     instructions=SYSTEM_PROMPT,
     tools=[create_mcp_tool()],
-    model=get_client(),
 )
+
