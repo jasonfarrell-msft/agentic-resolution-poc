@@ -2,12 +2,25 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import Union, Any
+from typing import Union
 from agent_framework import WorkflowBuilder, WorkflowContext, FunctionExecutor, Case, Default
 from shared.messages import TicketInput, IncidentRoute, RequestRoute, ResolutionProposal, EscalationRoute
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_message
 
 import json
 import re
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    return "429" in str(exc) or "too_many_requests" in str(exc).lower()
+
+
+_agent_retry = retry(
+    retry=retry_if_exception_message(match=r".*(429|too_many_requests|Too Many Requests).*"),
+    wait=wait_exponential(multiplier=2, min=5, max=60),
+    stop=stop_after_attempt(5),
+    reraise=True,
+)
 
 CONFIDENCE_THRESHOLD = 0.80
 
@@ -25,7 +38,7 @@ def _parse_resolution_json(text: str) -> dict:
 
 
 async def classify_ticket(
-    msg: Any,
+    msg: object,
     ctx: WorkflowContext[Union[IncidentRoute, RequestRoute]],
 ) -> None:
     """Entry point: accept any message type (str, dict, TicketInput) from DevUI or code."""
@@ -43,7 +56,7 @@ async def classify_ticket(
 
     from agents.classifier import agent as classifier_agent
 
-    result = await classifier_agent.run(
+    result = await _agent_retry(classifier_agent.run)(
         f"Please classify ticket number: {ticket_number}"
     )
     response_text = str(result)
@@ -73,7 +86,7 @@ async def resolve_incident(
     """Search KB for incident resolution and emit a ResolutionProposal."""
     from agents.incident import agent as incident_agent
 
-    result = await incident_agent.run(
+    result = await _agent_retry(incident_agent.run)(
         f"Find a resolution for incident ticket: {msg.ticket_number}"
     )
     response_text = str(result)
@@ -103,7 +116,7 @@ async def resolve_request(
     """Search KB for request fulfillment and emit a ResolutionProposal."""
     from agents.request import agent as request_agent
 
-    result = await request_agent.run(
+    result = await _agent_retry(request_agent.run)(
         f"Find a fulfillment procedure for service request: {msg.ticket_number}"
     )
     response_text = str(result)
@@ -132,7 +145,7 @@ async def apply_resolution(
     """Confidence >= threshold: ResolutionAgent marks the ticket complete."""
     from agents.resolution import agent as resolution_agent
 
-    result = await resolution_agent.run(
+    result = await _agent_retry(resolution_agent.run)(
         f"Apply resolution to ticket {msg.ticket_number}. "
         f"Ticket ID (GUID): {msg.ticket_id}. "
         f"Confidence: {msg.confidence:.2f}. "
@@ -149,7 +162,7 @@ async def escalate_to_human(
     """Confidence < threshold: EscalationAgent assigns to a human specialist."""
     from agents.escalation import agent as escalation_agent
 
-    result = await escalation_agent.run(
+    result = await _agent_retry(escalation_agent.run)(
         f"Escalate ticket {msg.ticket_number} to a human agent. "
         f"Ticket ID (GUID): {msg.ticket_id}. "
         f"Short description: {msg.short_description}. "
