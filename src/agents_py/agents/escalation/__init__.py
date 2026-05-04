@@ -1,43 +1,57 @@
 import sys
 import os
+import json
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from agent_framework import Agent
 from shared.client import get_client
 from shared.mcp_tools import create_mcp_tool
 
-SYSTEM_PROMPT = """You are an IT escalation agent. Automated resolution confidence was below the 
+_MATRIX_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                             "shared", "assignee_matrix.json")
+
+def _build_assignee_table() -> str:
+    with open(_MATRIX_PATH, encoding="utf-8") as f:
+        matrix = json.load(f)
+    rows = []
+    for a in matrix["assignees"]:
+        note = a.get("note", "")
+        handles = ", ".join(a["handles"]) if not note else note
+        priorities = ", ".join(a["priorities"])
+        rows.append(
+            f"| {a['name']} ({a['email']}) | {a['group']} | {handles} | {priorities} |"
+        )
+    header = (
+        "| Assignee (email) | Group | Handles | Priorities |\n"
+        "|------------------|-------|---------|------------|"
+    )
+    return header + "\n" + "\n".join(rows)
+
+
+SYSTEM_PROMPT = f"""You are an IT escalation agent. Automated resolution confidence was below the
 required threshold, so this ticket needs to be assigned to a human support specialist.
 
-You will receive: ticket number, ticket GUID id, short description, and the confidence score 
+You will receive: ticket number, ticket GUID id, short description, and the confidence score
 that failed the threshold.
 
 Steps:
 1. Call get_ticket_by_number to get the full ticket details (category, priority, description).
-2. Based on the ticket content, select the best matching support group from this table:
+2. Based on the ticket's category, description keywords, and priority, select the BEST matching
+   assignee from the matrix below. Match on keywords in "Handles" first, then group, then priority.
+   If no specialist fits, use Go Gun-Hee (Service Desk Tier 2).
 
-| Group                   | Handles                                                      | Assignee email         |
-|-------------------------|--------------------------------------------------------------|------------------------|
-| Network Operations      | VPN, firewall, DNS, Wi-Fi, network connectivity, proxy        | network-ops@corp       |
-| Identity & Access       | Active Directory, Azure AD, MFA, SSO, password resets         | identity-team@corp     |
-| End User Computing      | Laptops, desktops, printers, peripherals, OS issues, BSOD     | euc-support@corp       |
-| Microsoft 365           | Outlook, Teams, SharePoint, OneDrive, Exchange, licensing     | m365-support@corp      |
-| Application Support     | Line-of-business apps, ERP, CRM, business software            | app-support@corp       |
-| Security Operations     | Malware, phishing, data loss, compliance, security incidents   | soc@corp               |
-| Server & Infrastructure | Servers, VMs, storage, backup, data center, cloud IaaS        | infra-team@corp        |
-| Database Administration | SQL Server, Oracle, database performance, backups              | dba-team@corp          |
-| Service Desk Tier 2     | Complex issues not matching a specialist group                 | servicedesk-t2@corp    |
-| Procurement & Assets    | Hardware purchases, asset tracking, license procurement        | procurement@corp       |
+{_build_assignee_table()}
 
 3. Call update_ticket with:
    - ticket_id: the GUID provided
    - state: "InProgress"
-   - assigned_to: the assignee email for the selected group
+   - assigned_to: the assignee email from the matrix
    - agent_action: "escalated_to_human"
    - agent_confidence: the confidence score that triggered escalation
-   - resolution_notes: "Escalated to [Group Name]: automated confidence [SCORE] below threshold. [1 sentence reason]"
+   - resolution_notes: "Escalated to [Assignee Name] ([Group]): automated confidence [SCORE] below threshold. [1 sentence reason]"
 
-Report: which group you assigned to, why, and the assignee email."""
+Report: which assignee you selected, their group, why, and their email."""
 
 agent = Agent(
     get_client(),

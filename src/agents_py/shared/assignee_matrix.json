@@ -1,0 +1,207 @@
+{
+  "assignees": [
+    {
+      "name": "Sung Jin-Woo",
+      "email": "sung.jinwoo@corp",
+      "group": "Security Operations",
+      "handles": [
+        "malware",
+        "phishing",
+        "ransomware",
+        "data loss",
+        "data breach",
+        "compliance",
+        "security incident",
+        "intrusion",
+        "vulnerability",
+        "unauthorized access"
+      ],
+      "categories": ["Security", "Threat", "Compliance", "Data Loss"],
+      "priorities": ["Critical", "High"]
+    },
+    {
+      "name": "Beru",
+      "email": "beru@corp",
+      "group": "Network Operations",
+      "handles": [
+        "VPN",
+        "firewall",
+        "DNS",
+        "Wi-Fi",
+        "wireless",
+        "network connectivity",
+        "proxy",
+        "routing",
+        "packet loss",
+        "bandwidth",
+        "latency"
+      ],
+      "categories": ["Network", "Connectivity", "Infrastructure/Network"],
+      "priorities": ["Critical", "High", "Moderate"]
+    },
+    {
+      "name": "Woo Jin-Chul",
+      "email": "woo.jinchul@corp",
+      "group": "Identity & Access",
+      "handles": [
+        "Active Directory",
+        "Azure AD",
+        "Entra ID",
+        "MFA",
+        "SSO",
+        "password reset",
+        "account locked",
+        "login failure",
+        "permissions",
+        "role assignment",
+        "access request",
+        "group membership"
+      ],
+      "categories": ["Identity", "Access", "Authentication", "Authorization"],
+      "priorities": ["Critical", "High", "Moderate", "Low"]
+    },
+    {
+      "name": "Yoo Jinho",
+      "email": "yoo.jinho@corp",
+      "group": "End User Computing",
+      "handles": [
+        "laptop",
+        "desktop",
+        "printer",
+        "peripheral",
+        "monitor",
+        "keyboard",
+        "mouse",
+        "OS issue",
+        "Windows",
+        "macOS",
+        "BSOD",
+        "slow computer",
+        "software install",
+        "driver"
+      ],
+      "categories": ["Hardware", "End User Computing", "Device", "OS"],
+      "priorities": ["High", "Moderate", "Low"]
+    },
+    {
+      "name": "Cha Hae-In",
+      "email": "cha.haein@corp",
+      "group": "Microsoft 365",
+      "handles": [
+        "Outlook",
+        "Teams",
+        "SharePoint",
+        "OneDrive",
+        "Exchange",
+        "email",
+        "calendar",
+        "licensing",
+        "Microsoft 365",
+        "Office",
+        "Word",
+        "Excel",
+        "PowerPoint",
+        "mailbox"
+      ],
+      "categories": ["Microsoft 365", "Email", "Collaboration", "Productivity"],
+      "priorities": ["High", "Moderate", "Low"]
+    },
+    {
+      "name": "Thomas Andre",
+      "email": "thomas.andre@corp",
+      "group": "Application Support",
+      "handles": [
+        "application error",
+        "app crash",
+        "ERP",
+        "CRM",
+        "SAP",
+        "Salesforce",
+        "line-of-business",
+        "business software",
+        "software bug",
+        "integration",
+        "API error",
+        "web application"
+      ],
+      "categories": ["Application", "Software", "Business Application", "ERP", "CRM"],
+      "priorities": ["Critical", "High", "Moderate"]
+    },
+    {
+      "name": "Igris",
+      "email": "igris@corp",
+      "group": "Server & Infrastructure",
+      "handles": [
+        "server",
+        "VM",
+        "virtual machine",
+        "storage",
+        "backup",
+        "data center",
+        "cloud",
+        "IaaS",
+        "Azure VM",
+        "disk space",
+        "server down",
+        "service unavailable",
+        "hypervisor"
+      ],
+      "categories": ["Server", "Infrastructure", "Cloud", "Storage", "IaaS"],
+      "priorities": ["Critical", "High", "Moderate"]
+    },
+    {
+      "name": "Liu Zhigang",
+      "email": "liu.zhigang@corp",
+      "group": "Database Administration",
+      "handles": [
+        "SQL Server",
+        "Oracle",
+        "database",
+        "query",
+        "slow query",
+        "database performance",
+        "table lock",
+        "backup failure",
+        "replication",
+        "data corruption",
+        "connection pool"
+      ],
+      "categories": ["Database", "SQL", "Data"],
+      "priorities": ["Critical", "High", "Moderate"]
+    },
+    {
+      "name": "Go Gun-Hee",
+      "email": "go.gunhee@corp",
+      "group": "Service Desk Tier 2",
+      "handles": [
+        "general issue",
+        "unclassified",
+        "complex issue",
+        "multi-team",
+        "escalated",
+        "no match"
+      ],
+      "categories": [],
+      "priorities": ["Critical", "High", "Moderate", "Low"],
+      "note": "Catch-all: handles tickets that do not clearly match any specialist group."
+    },
+    {
+      "name": "Lennart Niermann",
+      "email": "lennart.niermann@corp",
+      "group": "Procurement & Assets",
+      "handles": [
+        "hardware purchase",
+        "asset",
+        "asset tracking",
+        "license procurement",
+        "new equipment",
+        "replacement device",
+        "vendor",
+        "order",
+        "inventory"
+      ],
+      "categories": ["Procurement", "Asset Management", "Hardware Request"],
+      "priorities": ["Moderate", "Low"]
+    }
+  ]
+}

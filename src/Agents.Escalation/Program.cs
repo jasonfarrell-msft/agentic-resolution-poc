@@ -61,6 +61,12 @@ static async Task<IResult> HandleRouteInternalAsync(RouteRequest req, IHttpClien
         JsonNode ticketNode = JsonNode.Parse(ticketJson)!;
         string ticketId = ticketNode["id"]?.GetValue<string>()
             ?? throw new InvalidOperationException($"Ticket {req.TicketNumber} has no 'id' field");
+        string ticketState = ticketNode["state"]?.GetValue<string>() ?? string.Empty;
+        if (string.Equals(ticketState, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogInformation("Ticket {TicketNumber} is already Closed — skipping escalation", req.TicketNumber);
+            return Results.Ok(new { escalationAction = "skipped", notes = "Ticket is already closed." });
+        }
 
         string userContent =
             $"Ticket data:\r\n{ticketJson}\r\n\r\n" +

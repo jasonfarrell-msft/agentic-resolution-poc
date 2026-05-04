@@ -40,6 +40,12 @@ app.MapPost("/process", async (ProcessRequest req, IHttpClientFactory httpFactor
         JsonNode ticketNode = JsonNode.Parse(ticketJson)!;
         string ticketId = ticketNode["id"]?.GetValue<string>()
             ?? throw new InvalidOperationException($"Ticket {req.TicketNumber} has no 'id' field");
+        string ticketState = ticketNode["state"]?.GetValue<string>() ?? string.Empty;
+        if (string.Equals(ticketState, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogInformation("Ticket {TicketNumber} is already Closed — skipping processing", req.TicketNumber);
+            return Results.Ok(new ResolutionResult("skipped", 0.0, "Ticket is already closed.", null));
+        }
         string shortDescription = ticketNode["shortDescription"]?.GetValue<string>() ?? req.TicketNumber;
 
         string searchJson = await CallMcpToolAsync(http, mcpUrl, "search_tickets",
@@ -89,12 +95,14 @@ app.MapPost("/process", async (ProcessRequest req, IHttpClientFactory httpFactor
 
         var result = ParseJsonBlock<ResolutionResult>(content);
 
-        string newState = result.Action == "incident_auto_resolved" ? "Resolved" : "New";
+        bool autoResolved = result.Action == "incident_auto_resolved";
+        string newState = autoResolved ? "Closed" : "New";
         await CallMcpToolAsync(http, mcpUrl, "update_ticket", new
         {
             ticket_id = ticketId,
             state = newState,
             resolution_notes = result.Notes,
+            assigned_to = autoResolved ? "resolver-ai" : (string?)null,
             agent_action = result.Action,
             agent_confidence = result.Confidence,
             matched_ticket_number = result.MatchedTicketNumber

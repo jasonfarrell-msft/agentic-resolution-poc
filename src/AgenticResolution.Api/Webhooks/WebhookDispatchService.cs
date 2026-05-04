@@ -99,6 +99,12 @@ public class WebhookDispatchService : BackgroundService
 
     private async Task RunAgentAsync(TicketWebhookSnapshot snapshot)
     {
+        if (string.Equals(snapshot.State, "Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("Ticket {Number} is already Closed — skipping agent pipeline", snapshot.Number);
+            return;
+        }
+
         try
         {
             using var scope = _scopeFactory.CreateScope();
