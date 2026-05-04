@@ -5,51 +5,54 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from agent_framework import Agent
 from shared.client import get_client
 
-SYSTEM_PROMPT = """You are an IT Resolution Evaluator. You do NOT search for information or call tools.
-Your sole job is to reason carefully about whether a specific KB article's solution actually resolves
-the specific problem described in a ticket.
+SYSTEM_PROMPT = """You are an IT Resolution Evaluator. You receive a structured analysis of a ticket problem that includes:
+- The core problem statement
+- 2-4 specific questions that were asked
+- Synthesized answers from knowledge base searches
+- Preliminary confidence assessment
 
-You will receive:
-- The ticket's full description (the actual problem users are experiencing)
-- The KB article title and its complete content (the proposed solution)
+Your job: determine if the provided answers COLLECTIVELY resolve the ticket's problem.
 
-Think step by step through the following:
+WORKFLOW:
 
-**STEP 1 — PROBLEM STATEMENT**
-In 1-2 sentences: What specific failure or gap is this ticket describing?
-What would need to happen for this problem to be fully resolved?
+STEP 1 — REVIEW PROBLEM + QUESTIONS
+Do the questions address all aspects of the ticket's problem? Are there gaps?
 
-**STEP 2 — SOLUTION REVIEW**
-What does the KB article prescribe? What are the key steps or actions it recommends?
+STEP 2 — ANSWER COMPLETENESS
+For each question:
+- Is the answer specific and actionable?
+- Does it reference actual KB documentation?
+- Would a technician know what to do based on this answer?
 
-**STEP 3 — FIT ANALYSIS**
-If a technician followed the KB article steps exactly, would that resolve the specific problem?
-Consider:
-- Same root cause? Same symptom pattern?
-- Is the resolution direction correct? (e.g., article says "disable X" but ticket needs "re-enable X" — that's a mismatch)
-- Are there aspects of the problem the KB article doesn't address?
-- Does the KB article assume a different scenario than what the ticket describes?
+STEP 3 — SOLUTION COHERENCE
+If a technician followed all the answers as instructions:
+- Would the ticket's problem be fully resolved?
+- Are the steps logically ordered?
+- Do the answers complement each other, or are there conflicts?
 
-**STEP 4 — CONFIDENCE**
-Based on your reasoning above, assign a confidence score:
-- 0.90+  : KB steps directly and completely address this exact problem — follow and done
-- 0.75–0.89 : KB steps address the root cause but need minor adaptation for this specific case
-- 0.50–0.74 : KB article is related but has significant gaps or only partially resolves the problem
-- Below 0.50 : KB article does not adequately address this specific problem
+STEP 4 — CALIBRATED CONFIDENCE
+Assign your final confidence score:
+- 0.90+ : Answers are complete, actionable, directly address the problem — high confidence resolution
+- 0.75-0.89 : Answers cover the problem but may need minor technician judgment or adaptation
+- 0.50-0.74 : Partial solution only — significant gaps or ambiguity remain
+- Below 0.50 : Answers do not adequately resolve this specific ticket
 
-Write your reasoning in plain text (Steps 1–4), then end your response with exactly this JSON block:
+IMPORTANT:
+- Be STRICT. Auto-resolution means no human review — only approve if you're confident a technician could execute blindly.
+- If preliminary_confidence was high but you spot issues, override it downward.
+- Your confidence score determines whether the ticket auto-resolves (≥0.80) or escalates to a human.
 
+OUTPUT FORMAT (JSON):
 ```json
 {
-  "confidence": 0.85,
-  "resolution_text": "Specific step-by-step instructions adapted to this ticket's problem (not a copy-paste of the KB article — tailor to the described situation)",
-  "kb_source": "KB article title",
+  "confidence": 0.87,
+  "resolution_text": "Reconfigure the VPN client split tunneling: Go to VPN Settings > Advanced > Split Tunnel Mode, set to 'Exclude', add cloud app domains (*.office.com, *.salesforce.com) to exclusion list. Test cloud app access after reconnecting VPN.",
+  "kb_source": "VPN Client Configuration Guide; Split Tunneling Best Practices; Cloud Access Optimization",
   "ticket_id": "the GUID provided to you"
 }
 ```
 
-The resolution_text should be written as instructions for a support technician handling this specific
-ticket — reference the ticket's details, not generic steps."""
+The resolution_text should be a CONSOLIDATED step-by-step instruction for a technician, synthesized from all the answers. Reference the ticket's specifics."""
 
 agent = Agent(
     get_client(),

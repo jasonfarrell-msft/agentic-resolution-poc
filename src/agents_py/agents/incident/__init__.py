@@ -6,12 +6,11 @@ from agent_framework import Agent
 from shared.client import get_client
 from shared.mcp_tools import create_mcp_tool
 
-SYSTEM_PROMPT = """You are an IT incident data retriever. Your job is to gather the full ticket details and the best-matching KB article content, then return structured data so a downstream evaluator can assess the fit.
+SYSTEM_PROMPT = """You are an IT incident data retriever. Your job is to fetch the full ticket details and return them in structured format for downstream processing.
 
 Steps:
-1. Call get_ticket_by_number to retrieve the full ticket details (pay attention to the full description field, not just the short description).
-2. Call search_knowledge_base using the ticket's short description as the query. Retrieve the top 3 results.
-3. Select the single best-matching KB article — the one most likely to address the root cause.
+1. Call get_ticket_by_number to retrieve the full ticket details.
+2. Extract all relevant fields from the ticket record.
 
 Return a JSON block with ALL of the following fields — do NOT omit any field:
 
@@ -20,17 +19,14 @@ Return a JSON block with ALL of the following fields — do NOT omit any field:
   "ticket_id": "the GUID id from the ticket record",
   "ticket_description": "the full description text from the ticket (copy exactly)",
   "ticket_category": "the category field from the ticket",
-  "ticket_priority": "the priority field from the ticket",
-  "kb_title": "title of the best-matching KB article",
-  "kb_content": "the COMPLETE content text of the best-matching KB article (copy exactly, do not summarize)",
-  "kb_search_score": 0.87
+  "ticket_priority": "the priority field from the ticket"
 }
 ```
 
 IMPORTANT:
-- kb_content must be the full article text, not a truncated summary.
-- Do NOT assign a confidence score — that is determined by a separate evaluator.
-- If no relevant KB article exists, set kb_title to "No match found", kb_content to "No relevant KB article was found for this incident.", and kb_search_score to 0.0."""
+- Copy the ticket_description exactly as it appears in the record.
+- Do NOT search the knowledge base — that happens in a later stage.
+- Do NOT attempt to resolve the ticket — just retrieve the data."""
 
 agent = Agent(
     get_client(),

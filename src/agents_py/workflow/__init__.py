@@ -4,7 +4,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from typing import Union
 from agent_framework import WorkflowBuilder, WorkflowContext, FunctionExecutor, Case, Default
-from shared.messages import TicketInput, IncidentRoute, RequestRoute, KBSearchResult, ResolutionProposal, EscalationRoute
+from shared.messages import (
+    TicketInput, IncidentRoute, RequestRoute, TicketDetails, 
+    ResolutionAnalysis, ResolutionProposal, EscalationRoute, ResolutionQuestion
+)
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_message
 
 import json
@@ -34,7 +37,7 @@ def _parse_json_block(text: str) -> dict:
         except json.JSONDecodeError:
             pass
     # Fallback: find a raw JSON object containing known keys
-    for key in ("confidence", "ticket_id", "kb_title"):
+    for key in ("confidence", "ticket_id", "core_problem", "preliminary_confidence", "questions"):
         match = re.search(r'\{[^{}]*"' + key + r'"[^{}]*\}', text, re.DOTALL)
         if match:
             try:
@@ -84,79 +87,129 @@ async def classify_ticket(
         ))
 
 
-async def resolve_incident(
+async def fetch_incident_details(
     msg: IncidentRoute,
-    ctx: WorkflowContext[KBSearchResult],
+    ctx: WorkflowContext[TicketDetails],
 ) -> None:
-    """Fetch ticket details + KB article content; emit KBSearchResult for evaluation."""
+    """Fetch ticket details for incident (no KB search)."""
     from agents.incident import agent as incident_agent
 
     result = await _agent_retry(incident_agent.run)(
-        f"Retrieve ticket details and best-matching KB article for incident: {msg.ticket_number}"
+        f"Retrieve ticket details for incident: {msg.ticket_number}"
     )
     response_text = str(result)
 
     parsed = _parse_json_block(response_text)
-    await ctx.send_message(KBSearchResult(
+    await ctx.send_message(TicketDetails(
         ticket_number=msg.ticket_number,
         ticket_id=parsed.get("ticket_id") or msg.ticket_id,
         short_description=msg.short_description,
         ticket_description=parsed.get("ticket_description", ""),
         ticket_category=parsed.get("ticket_category", ""),
         ticket_priority=parsed.get("ticket_priority", ""),
-        kb_title=parsed.get("kb_title", "No match found"),
-        kb_content=parsed.get("kb_content", "No KB article content available."),
-        kb_search_score=float(parsed.get("kb_search_score", 0.0)),
         ticket_type="incident",
     ))
 
 
-async def resolve_request(
+async def fetch_request_details(
     msg: RequestRoute,
-    ctx: WorkflowContext[KBSearchResult],
+    ctx: WorkflowContext[TicketDetails],
 ) -> None:
-    """Fetch ticket details + KB article content; emit KBSearchResult for evaluation."""
+    """Fetch ticket details for service request (no KB search)."""
     from agents.request import agent as request_agent
 
     result = await _agent_retry(request_agent.run)(
-        f"Retrieve ticket details and best-matching KB article for service request: {msg.ticket_number}"
+        f"Retrieve ticket details for service request: {msg.ticket_number}"
     )
     response_text = str(result)
 
     parsed = _parse_json_block(response_text)
-    await ctx.send_message(KBSearchResult(
+    await ctx.send_message(TicketDetails(
         ticket_number=msg.ticket_number,
         ticket_id=parsed.get("ticket_id") or msg.ticket_id,
         short_description=msg.short_description,
         ticket_description=parsed.get("ticket_description", ""),
         ticket_category=parsed.get("ticket_category", ""),
         ticket_priority=parsed.get("ticket_priority", ""),
-        kb_title=parsed.get("kb_title", "No match found"),
-        kb_content=parsed.get("kb_content", "No KB article content available."),
-        kb_search_score=float(parsed.get("kb_search_score", 0.0)),
         ticket_type="request",
     ))
 
 
-async def evaluate_resolution(
-    msg: KBSearchResult,
-    ctx: WorkflowContext[ResolutionProposal],
+async def decompose_problem(
+    msg: TicketDetails,
+    ctx: WorkflowContext[ResolutionAnalysis],
 ) -> None:
-    """EvaluatorAgent reasons about KB-to-ticket fit and assigns calibrated confidence."""
-    from agents.evaluator import agent as evaluator_agent
+    """DecomposerAgent: understand problem, generate questions, search KB, synthesize answers."""
+    from agents.decomposer import agent as decomposer_agent
 
     prompt = (
-        f"Evaluate whether the following KB article resolves this ticket.\n\n"
+        f"Analyze this ticket and perform targeted knowledge base searches.\n\n"
         f"TICKET NUMBER: {msg.ticket_number}\n"
         f"TICKET ID (GUID): {msg.ticket_id}\n"
         f"SHORT DESCRIPTION: {msg.short_description}\n"
         f"FULL DESCRIPTION: {msg.ticket_description or '(not available)'}\n"
         f"CATEGORY: {msg.ticket_category}\n"
         f"PRIORITY: {msg.ticket_priority}\n\n"
-        f"KB ARTICLE TITLE: {msg.kb_title}\n"
-        f"KB ARTICLE CONTENT:\n{msg.kb_content}\n\n"
-        f"Search relevance score (for reference only): {msg.kb_search_score:.2f}\n\n"
-        f"Reason through Steps 1–4 and return the JSON block."
+        f"Follow the workflow: problem understanding → question generation → targeted KB searches → answer synthesis → preliminary confidence.\n"
+        f"Return the JSON block with core_problem, questions (array), and preliminary_confidence."
+    )
+
+    result = await _agent_retry(decomposer_agent.run)(prompt)
+    response_text = str(result)
+
+    parsed = _parse_json_block(response_text)
+    
+    # Parse questions array
+    questions_data = parsed.get("questions", [])
+    questions = []
+    for q in questions_data:
+        if isinstance(q, dict):
+            questions.append(ResolutionQuestion(
+                question=q.get("question", ""),
+                search_terms=q.get("search_terms", ""),
+                answer=q.get("answer", ""),
+                kb_sources=q.get("kb_sources", []),
+            ))
+    
+    await ctx.send_message(ResolutionAnalysis(
+        ticket_number=msg.ticket_number,
+        ticket_id=parsed.get("ticket_id") or msg.ticket_id,
+        short_description=msg.short_description,
+        ticket_description=msg.ticket_description,
+        ticket_category=msg.ticket_category,
+        ticket_priority=msg.ticket_priority,
+        ticket_type=msg.ticket_type,
+        core_problem=parsed.get("core_problem", "Problem analysis not available"),
+        questions=questions,
+        preliminary_confidence=float(parsed.get("preliminary_confidence", 0.0)),
+    ))
+
+
+async def evaluate_resolution(
+    msg: ResolutionAnalysis,
+    ctx: WorkflowContext[ResolutionProposal],
+) -> None:
+    """EvaluatorAgent receives ResolutionAnalysis and assigns calibrated confidence."""
+    from agents.evaluator import agent as evaluator_agent
+
+    # Format questions + answers for the evaluator
+    qa_text = "\n\n".join([
+        f"Q{i+1}: {q.question}\nSearch terms used: {q.search_terms}\nAnswer: {q.answer}\nKB sources: {', '.join(q.kb_sources) if q.kb_sources else 'None'}"
+        for i, q in enumerate(msg.questions)
+    ])
+
+    prompt = (
+        f"Evaluate whether the synthesized answers resolve this ticket.\n\n"
+        f"TICKET NUMBER: {msg.ticket_number}\n"
+        f"TICKET ID (GUID): {msg.ticket_id}\n"
+        f"SHORT DESCRIPTION: {msg.short_description}\n"
+        f"FULL DESCRIPTION: {msg.ticket_description or '(not available)'}\n"
+        f"CATEGORY: {msg.ticket_category}\n"
+        f"PRIORITY: {msg.ticket_priority}\n\n"
+        f"CORE PROBLEM (from decomposer):\n{msg.core_problem}\n\n"
+        f"QUESTIONS & ANSWERS:\n{qa_text}\n\n"
+        f"PRELIMINARY CONFIDENCE (from decomposer): {msg.preliminary_confidence:.2f}\n\n"
+        f"Review the analysis and return your calibrated confidence + consolidated resolution_text."
     )
 
     result = await _agent_retry(evaluator_agent.run)(prompt)
@@ -165,7 +218,9 @@ async def evaluate_resolution(
     parsed = _parse_json_block(response_text)
     confidence = float(parsed.get("confidence", 0.0))
     resolution_text = parsed.get("resolution_text", response_text)
-    kb_source = parsed.get("kb_source", msg.kb_title)
+    kb_source = parsed.get("kb_source", "; ".join([
+        src for q in msg.questions for src in q.kb_sources
+    ]) or "No KB source")
     ticket_id = parsed.get("ticket_id") or msg.ticket_id
 
     await ctx.send_message(ResolutionProposal(
@@ -215,8 +270,9 @@ async def escalate_to_human(
 
 # Build the workflow
 classifier_exec = FunctionExecutor(classify_ticket, id="ClassifierExecutor")
-incident_exec = FunctionExecutor(resolve_incident, id="IncidentResolverExecutor")
-request_exec = FunctionExecutor(resolve_request, id="RequestResolverExecutor")
+incident_exec = FunctionExecutor(fetch_incident_details, id="IncidentFetchExecutor")
+request_exec = FunctionExecutor(fetch_request_details, id="RequestFetchExecutor")
+decomposer_exec = FunctionExecutor(decompose_problem, id="DecomposerExecutor")
 evaluator_exec = FunctionExecutor(evaluate_resolution, id="EvaluatorExecutor")
 resolution_exec = FunctionExecutor(apply_resolution, id="ResolutionExecutor")
 escalation_exec = FunctionExecutor(escalate_to_human, id="EscalationExecutor")
@@ -225,13 +281,13 @@ builder = WorkflowBuilder(
     start_executor=classifier_exec,
     name="IT Ticket Resolution",
     description=(
-        f"Classifier → Incident/Request Retriever → Evaluator → "
+        f"Classifier → Incident/Request Fetch → Decomposer (question-driven KB search) → Evaluator → "
         f"confidence ≥{int(CONFIDENCE_THRESHOLD*100)}% → ResolutionAgent | "
         f"confidence <{int(CONFIDENCE_THRESHOLD*100)}% → EscalationAgent"
     ),
 )
 
-# Classifier → Incident or Request retriever
+# Classifier → Incident or Request fetcher
 builder.add_switch_case_edge_group(
     classifier_exec,
     cases=[
@@ -240,11 +296,15 @@ builder.add_switch_case_edge_group(
     ],
 )
 
-# Both retrievers → Evaluator
-builder.add_edge(incident_exec, evaluator_exec,
-                 condition=lambda m: isinstance(m, KBSearchResult))
-builder.add_edge(request_exec, evaluator_exec,
-                 condition=lambda m: isinstance(m, KBSearchResult))
+# Both fetchers → Decomposer
+builder.add_edge(incident_exec, decomposer_exec,
+                 condition=lambda m: isinstance(m, TicketDetails))
+builder.add_edge(request_exec, decomposer_exec,
+                 condition=lambda m: isinstance(m, TicketDetails))
+
+# Decomposer → Evaluator
+builder.add_edge(decomposer_exec, evaluator_exec,
+                 condition=lambda m: isinstance(m, ResolutionAnalysis))
 
 # Evaluator → Resolution or Escalation based on calibrated confidence
 builder.add_edge(evaluator_exec, resolution_exec,
@@ -253,5 +313,4 @@ builder.add_edge(evaluator_exec, escalation_exec,
                  condition=lambda m: isinstance(m, ResolutionProposal) and m.confidence < CONFIDENCE_THRESHOLD)
 
 workflow = builder.build()
-
 
