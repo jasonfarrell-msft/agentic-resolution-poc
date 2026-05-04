@@ -15,7 +15,7 @@ def get_client() -> OpenAIChatCompletionClient:
             "AZURE_OPENAI_ENDPOINT",
             "https://oai-agentic-res-src-dev.cognitiveservices.azure.com/"
         )
-        model = os.environ.get("AZURE_OPENAI_MODEL", "gpt-41-mini")
+        model = os.environ.get("AZURE_OPENAI_MODEL", "gpt-41-nano")
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
         _client = OpenAIChatCompletionClient(
             model=model,
