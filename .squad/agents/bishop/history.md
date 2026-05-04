@@ -118,3 +118,74 @@
 - Add Bicep modules for 3 new Container Apps
 - Wire AgenticResolution.Api to call hosted agent endpoints instead of deprecated SDK
 - Replace rule-based logic with Azure OpenAI calls using system prompts
+
+### 2026-05-04 — Question-Driven Resolution Pipeline Redesign
+
+**Context:**
+- The multi-agent resolution pipeline was failing to auto-resolve tickets accurately. Root cause: "dumb" KB search that used only the ticket's short description and picked the top result without understanding what specific information was needed to solve the problem.
+- Test case failure: INC0010091 "VPN split tunneling misconfigured causing slow cloud app access" — system couldn't confidently match it to the "VPN Not Connecting" KB article because the search didn't capture the specific problem (split tunneling vs general connection).
+
+**What was built:**
+- **DecomposerAgent** (`agents/decomposer/__init__.py`) — New agent that performs question-driven KB retrieval:
+  1. Understands the core problem from the ticket description
+  2. Generates 2-4 specific answerable questions that would lead to a resolution
+  3. Executes multiple targeted KB searches (one per question with specific search terms)
+  4. Synthesizes KB search results into clear, specific answers
+  5. Assigns preliminary confidence based on answer completeness
+- **New message types** (`shared/messages.py`):
+  - `TicketDetails` — Output from Incident/Request agents (ticket data only, no KB search)
+  - `ResolutionQuestion` — Structured question with search terms, synthesized answer, and KB sources
+  - `ResolutionAnalysis` — Full problem decomposition with core problem statement, questions array, and preliminary confidence
+  - **REMOVED:** `KBSearchResult` (breaking change — no longer passing raw KB articles downstream)
+- **Simplified Incident/Request agents** — Now only fetch ticket details via `get_ticket_by_number`; no KB search (that moved to DecomposerAgent)
+- **Updated EvaluatorAgent** — Prompt rewritten to evaluate `ResolutionAnalysis` (questions + synthesized answers) instead of raw KB article content
+- **Complete workflow rewrite** (`workflow/__init__.py`):
+  - New flow: `Classifier → Incident/RequestAgent (fetch) → DecomposerAgent (question-driven KB search) → EvaluatorAgent → Gate → Resolution/Escalation`
+  - Added `decompose_problem` executor with JSON parsing for questions array
+  - Updated workflow edges: fetch agents → decomposer → evaluator → gate
+- **DevUI update** (`devui_serve.py`) — Added `decomposer_agent` to served entities
+
+**Key architectural decision:**
+- **Single enriched agent approach** over separate agents per step. Rationale:
+  - Agent Framework's native tool-calling loop allows one agent to iteratively call MCP tools (e.g., `search_knowledge_base` multiple times) in a single conversation
+  - Reduces message serialization overhead at workflow boundaries
+  - Natural LLM flow: "think → search → search → synthesize → evaluate" happens in one agent trace
+  - Simpler workflow graph with fewer edges = easier debugging
+- **Question-first retrieval** instead of search-first evaluation. The LLM explicitly articulates what needs to be known BEFORE searching, then searches with targeted queries.
+
+**Prompt engineering highlights:**
+- DecomposerAgent prompt includes:
+  - Step-by-step workflow (Problem Understanding → Question Generation → Targeted KB Search → Answer Synthesis → Preliminary Confidence)
+  - Concrete examples of good vs. bad questions ("What VPN settings control split tunneling?" vs. "How do I fix VPN issues?")
+  - Explicit instruction to call `search_knowledge_base` MULTIPLE TIMES (not just once)
+  - JSON output schema with questions array (question, search_terms, answer, kb_sources)
+- EvaluatorAgent prompt simplified:
+  - No longer receives raw KB content — receives structured analysis
+  - Focus on answer completeness, solution coherence, and calibrated confidence
+  - Stricter threshold guidance (0.90+ = high confidence, <0.50 = inadequate)
+
+**Tradeoffs:**
+- ✅ **Higher accuracy:** Targeted KB searches based on specific questions vs. blind top-1 retrieval
+- ✅ **Better transparency:** Questions + answers logged, making failures easier to diagnose
+- ✅ **Multi-source synthesis:** Can combine information from multiple KB articles (not just one)
+- ❌ **Increased latency:** Multiple KB searches (2-4+) instead of single search = +5-10 seconds per ticket
+- ❌ **Higher cost:** ~2x LLM token usage per ticket (decomposer does reasoning + multiple searches)
+- ❌ **Complexity:** More sophisticated prompts = harder to debug hallucination or off-track reasoning
+
+**Validation:**
+- Workflow builds successfully: `python -c "from workflow import workflow; print(workflow)"` → OK
+- All imports resolve correctly
+- Message types parse correctly (dataclasses with `list` instead of `list[ResolutionQuestion]` for Python 3.8 compatibility)
+
+**Success metrics to track after deployment:**
+1. Auto-resolve rate (target: increase from ~40% to 60%+)
+2. False positive rate (target: <5% of auto-resolved tickets re-opened)
+3. Average questions generated per ticket (should be 2-4)
+4. KB search calls per ticket (should be 2-4+, proving targeted retrieval)
+
+**Future work:**
+- Caching layer for common KB queries (reduce MCP server load)
+- Question quality validation (meta-prompt to validate questions before searching)
+- Feedback loop: log {ticket, questions, answers, confidence, actual_resolution_outcome} → fine-tune question generation
+- Dynamic question count (let agent decide 1-5 questions based on problem complexity)
+
