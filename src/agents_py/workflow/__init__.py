@@ -2,11 +2,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from typing import Union
+from typing import Union, Any
 from agent_framework import WorkflowBuilder, WorkflowContext, FunctionExecutor, Case, Default
 from shared.messages import TicketInput, IncidentRoute, RequestRoute, ResolutionProposal, EscalationRoute
-from shared.client import get_client
-from shared.mcp_tools import create_mcp_tool
 
 import json
 import re
@@ -27,35 +25,32 @@ def _parse_resolution_json(text: str) -> dict:
 
 
 async def classify_ticket(
-    msg: "Union[str, TicketInput]",
+    msg: Any,
     ctx: WorkflowContext[Union[IncidentRoute, RequestRoute]],
 ) -> None:
-    """Entry point: accept plain text (from DevUI) or TicketInput, classify the ticket."""
-    ticket_number = msg.strip() if isinstance(msg, str) else msg.ticket_number
+    """Entry point: accept any message type (str, dict, TicketInput) from DevUI or code."""
+    # DevUI sends initial input as a dict e.g. {"content": "INC0010001", "role": "user"}
+    if isinstance(msg, str):
+        ticket_number = msg.strip()
+    elif isinstance(msg, dict):
+        ticket_number = (
+            msg.get("content") or msg.get("ticket_number") or msg.get("text") or str(msg)
+        ).strip()
+    elif isinstance(msg, TicketInput):
+        ticket_number = msg.ticket_number
+    else:
+        ticket_number = str(msg).strip()
 
-    from agent_framework import AgentContext
     from agents.classifier import agent as classifier_agent
 
-    agent_ctx = AgentContext()
     result = await classifier_agent.run(
-        f"Please classify ticket number: {ticket_number}", agent_ctx
+        f"Please classify ticket number: {ticket_number}"
     )
     response_text = str(result)
 
-    # Extract ticket id and short description from agent response if available
-    ticket_id = ticket_number  # fallback
+    # Ticket id defaults to number — downstream agents fetch the full record via MCP
+    ticket_id = ticket_number
     short_description = ticket_number
-
-    if hasattr(result, "tool_results"):
-        for tr in result.tool_results:
-            try:
-                data = json.loads(tr)
-                if "id" in data:
-                    ticket_id = data["id"]
-                    short_description = data.get("shortDescription", ticket_number)
-                    break
-            except Exception:
-                pass
 
     if "INCIDENT:" in response_text.upper() or "incident" in response_text.lower():
         await ctx.send_message(IncidentRoute(
@@ -76,12 +71,10 @@ async def resolve_incident(
     ctx: WorkflowContext[ResolutionProposal],
 ) -> None:
     """Search KB for incident resolution and emit a ResolutionProposal."""
-    from agent_framework import AgentContext
     from agents.incident import agent as incident_agent
 
-    agent_ctx = AgentContext()
     result = await incident_agent.run(
-        f"Find a resolution for incident ticket: {msg.ticket_number}", agent_ctx
+        f"Find a resolution for incident ticket: {msg.ticket_number}"
     )
     response_text = str(result)
 
@@ -108,12 +101,10 @@ async def resolve_request(
     ctx: WorkflowContext[ResolutionProposal],
 ) -> None:
     """Search KB for request fulfillment and emit a ResolutionProposal."""
-    from agent_framework import AgentContext
     from agents.request import agent as request_agent
 
-    agent_ctx = AgentContext()
     result = await request_agent.run(
-        f"Find a fulfillment procedure for service request: {msg.ticket_number}", agent_ctx
+        f"Find a fulfillment procedure for service request: {msg.ticket_number}"
     )
     response_text = str(result)
 
@@ -139,17 +130,14 @@ async def apply_resolution(
     ctx: WorkflowContext[str],
 ) -> None:
     """Confidence >= threshold: ResolutionAgent marks the ticket complete."""
-    from agent_framework import AgentContext
     from agents.resolution import agent as resolution_agent
 
-    agent_ctx = AgentContext()
     result = await resolution_agent.run(
         f"Apply resolution to ticket {msg.ticket_number}. "
         f"Ticket ID (GUID): {msg.ticket_id}. "
         f"Confidence: {msg.confidence:.2f}. "
         f"KB source: {msg.kb_source or 'N/A'}. "
-        f"Resolution: {msg.resolution_text}",
-        agent_ctx,
+        f"Resolution: {msg.resolution_text}"
     )
     await ctx.yield_output(str(result))
 
@@ -159,17 +147,14 @@ async def escalate_to_human(
     ctx: WorkflowContext[str],
 ) -> None:
     """Confidence < threshold: EscalationAgent assigns to a human specialist."""
-    from agent_framework import AgentContext
     from agents.escalation import agent as escalation_agent
 
-    agent_ctx = AgentContext()
     result = await escalation_agent.run(
         f"Escalate ticket {msg.ticket_number} to a human agent. "
         f"Ticket ID (GUID): {msg.ticket_id}. "
         f"Short description: {msg.short_description}. "
         f"Automated confidence was {msg.confidence:.2f} (below {CONFIDENCE_THRESHOLD} threshold). "
-        f"Proposed resolution was: {msg.resolution_text[:300]}",
-        agent_ctx,
+        f"Proposed resolution was: {msg.resolution_text[:300]}"
     )
     await ctx.yield_output(str(result))
 
