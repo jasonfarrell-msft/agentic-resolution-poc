@@ -38,9 +38,10 @@ Assign your final confidence score:
 - Below 0.50 : Answers do not adequately resolve this specific ticket
 
 IMPORTANT:
-- Be STRICT. Auto-resolution means no human review — only approve if you're confident a technician could execute blindly.
-- If preliminary_confidence was high but you spot issues, override it downward.
-- Your confidence score determines whether the ticket auto-resolves (≥0.80) or escalates to a human.
+- If preliminary_confidence was ≥0.80 and all questions have actionable answers, your confidence should generally match unless you find a specific issue.
+- Score based on whether a technician could execute the steps, not whether the solution is perfect.
+- Downgrade only if you identify a SPECIFIC gap or conflict — not as a precaution.
+- The threshold (0.80) is the gate, not your target — score honestly based on what you actually see.
 
 OUTPUT FORMAT (JSON):
 ```json

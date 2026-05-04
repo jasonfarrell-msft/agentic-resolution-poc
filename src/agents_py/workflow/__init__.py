@@ -29,21 +29,24 @@ CONFIDENCE_THRESHOLD = 0.80
 
 
 def _parse_json_block(text: str) -> dict:
-    """Extract the JSON block from an agent response."""
+    """Extract JSON block from an agent response. Handles nested structures."""
+    # Try explicit ```json code block first
     match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1))
         except json.JSONDecodeError:
             pass
-    # Fallback: find a raw JSON object containing known keys
-    for key in ("confidence", "ticket_id", "core_problem", "preliminary_confidence", "questions"):
-        match = re.search(r'\{[^{}]*"' + key + r'"[^{}]*\}', text, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                continue
+    # Fallback: find first { and use raw_decode (handles nested JSON)
+    start = text.find('{')
+    if start != -1:
+        decoder = json.JSONDecoder()
+        try:
+            obj, _ = decoder.raw_decode(text, start)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
     return {}
 
 
