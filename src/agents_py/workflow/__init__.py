@@ -135,34 +135,23 @@ async def fetch_request_details(
     ))
 
 
-async def decompose_problem(
-    msg: TicketDetails,
-    ctx: WorkflowContext[ResolutionAnalysis],
-) -> None:
-    """DecomposerAgent: understand problem, generate questions, search KB, synthesize answers."""
-    from agents.decomposer import agent as decomposer_agent
-
-    prompt = (
-        f"Analyze this ticket and perform targeted knowledge base searches.\n\n"
+def _build_decomposer_prompt(msg: TicketDetails, ticket_label: str) -> str:
+    return (
+        f"Analyze this {ticket_label} ticket and perform targeted knowledge base searches.\n\n"
         f"TICKET NUMBER: {msg.ticket_number}\n"
         f"TICKET ID (GUID): {msg.ticket_id}\n"
         f"SHORT DESCRIPTION: {msg.short_description}\n"
         f"FULL DESCRIPTION: {msg.ticket_description or '(not available)'}\n"
         f"CATEGORY: {msg.ticket_category}\n"
         f"PRIORITY: {msg.ticket_priority}\n\n"
-        f"Follow the workflow: problem understanding → question generation → targeted KB searches → answer synthesis → preliminary confidence.\n"
-        f"Return the JSON block with core_problem, questions (array), and preliminary_confidence."
+        f"Follow the workflow in your instructions and return the JSON block with "
+        f"ticket_id, core_problem, questions (array), and preliminary_confidence."
     )
 
-    result = await _agent_retry(decomposer_agent.run)(prompt)
-    response_text = str(result)
 
-    parsed = _parse_json_block(response_text)
-    
-    # Parse questions array
-    questions_data = parsed.get("questions", [])
+def _parse_questions(parsed: dict) -> list:
     questions = []
-    for q in questions_data:
+    for q in parsed.get("questions", []):
         if isinstance(q, dict):
             questions.append(ResolutionQuestion(
                 question=q.get("question", ""),
@@ -170,7 +159,21 @@ async def decompose_problem(
                 answer=q.get("answer", ""),
                 kb_sources=q.get("kb_sources", []),
             ))
-    
+    return questions
+
+
+async def decompose_incident(
+    msg: TicketDetails,
+    ctx: WorkflowContext[ResolutionAnalysis],
+) -> None:
+    """IncidentDecomposer: diagnosis-oriented KB search for incidents."""
+    from agents.incident_decomposer import agent as incident_decomposer_agent
+
+    result = await _agent_retry(incident_decomposer_agent.run)(
+        _build_decomposer_prompt(msg, "incident")
+    )
+    parsed = _parse_json_block(str(result))
+
     await ctx.send_message(ResolutionAnalysis(
         ticket_number=msg.ticket_number,
         ticket_id=parsed.get("ticket_id") or msg.ticket_id,
@@ -180,7 +183,33 @@ async def decompose_problem(
         ticket_priority=msg.ticket_priority,
         ticket_type=msg.ticket_type,
         core_problem=parsed.get("core_problem", "Problem analysis not available"),
-        questions=questions,
+        questions=_parse_questions(parsed),
+        preliminary_confidence=float(parsed.get("preliminary_confidence", 0.0)),
+    ))
+
+
+async def decompose_request(
+    msg: TicketDetails,
+    ctx: WorkflowContext[ResolutionAnalysis],
+) -> None:
+    """RequestDecomposer: fulfillment-oriented KB search for service requests."""
+    from agents.request_decomposer import agent as request_decomposer_agent
+
+    result = await _agent_retry(request_decomposer_agent.run)(
+        _build_decomposer_prompt(msg, "service request")
+    )
+    parsed = _parse_json_block(str(result))
+
+    await ctx.send_message(ResolutionAnalysis(
+        ticket_number=msg.ticket_number,
+        ticket_id=parsed.get("ticket_id") or msg.ticket_id,
+        short_description=msg.short_description,
+        ticket_description=msg.ticket_description,
+        ticket_category=msg.ticket_category,
+        ticket_priority=msg.ticket_priority,
+        ticket_type=msg.ticket_type,
+        core_problem=parsed.get("core_problem", "Problem analysis not available"),
+        questions=_parse_questions(parsed),
         preliminary_confidence=float(parsed.get("preliminary_confidence", 0.0)),
     ))
 
@@ -272,7 +301,8 @@ async def escalate_to_human(
 classifier_exec = FunctionExecutor(classify_ticket, id="ClassifierExecutor")
 incident_exec = FunctionExecutor(fetch_incident_details, id="IncidentFetchExecutor")
 request_exec = FunctionExecutor(fetch_request_details, id="RequestFetchExecutor")
-decomposer_exec = FunctionExecutor(decompose_problem, id="DecomposerExecutor")
+incident_decomposer_exec = FunctionExecutor(decompose_incident, id="IncidentDecomposerExecutor")
+request_decomposer_exec = FunctionExecutor(decompose_request, id="RequestDecomposerExecutor")
 evaluator_exec = FunctionExecutor(evaluate_resolution, id="EvaluatorExecutor")
 resolution_exec = FunctionExecutor(apply_resolution, id="ResolutionExecutor")
 escalation_exec = FunctionExecutor(escalate_to_human, id="EscalationExecutor")
@@ -281,8 +311,8 @@ builder = WorkflowBuilder(
     start_executor=classifier_exec,
     name="IT Ticket Resolution",
     description=(
-        f"Classifier → Incident/Request Fetch → Decomposer (question-driven KB search) → Evaluator → "
-        f"confidence ≥{int(CONFIDENCE_THRESHOLD*100)}% → ResolutionAgent | "
+        f"Classifier → Incident Fetch → IncidentDecomposer | Request Fetch → RequestDecomposer → "
+        f"Evaluator → confidence ≥{int(CONFIDENCE_THRESHOLD*100)}% → ResolutionAgent | "
         f"confidence <{int(CONFIDENCE_THRESHOLD*100)}% → EscalationAgent"
     ),
 )
@@ -296,14 +326,16 @@ builder.add_switch_case_edge_group(
     ],
 )
 
-# Both fetchers → Decomposer
-builder.add_edge(incident_exec, decomposer_exec,
+# Incident fetcher → IncidentDecomposer; Request fetcher → RequestDecomposer
+builder.add_edge(incident_exec, incident_decomposer_exec,
                  condition=lambda m: isinstance(m, TicketDetails))
-builder.add_edge(request_exec, decomposer_exec,
+builder.add_edge(request_exec, request_decomposer_exec,
                  condition=lambda m: isinstance(m, TicketDetails))
 
-# Decomposer → Evaluator
-builder.add_edge(decomposer_exec, evaluator_exec,
+# Both decomposers → Evaluator
+builder.add_edge(incident_decomposer_exec, evaluator_exec,
+                 condition=lambda m: isinstance(m, ResolutionAnalysis))
+builder.add_edge(request_decomposer_exec, evaluator_exec,
                  condition=lambda m: isinstance(m, ResolutionAnalysis))
 
 # Evaluator → Resolution or Escalation based on calibrated confidence

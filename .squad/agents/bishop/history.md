@@ -189,3 +189,36 @@
 - Feedback loop: log {ticket, questions, answers, confidence, actual_resolution_outcome} → fine-tune question generation
 - Dynamic question count (let agent decide 1-5 questions based on problem complexity)
 
+### 2026-05-05 — Split DecomposerAgent into IncidentDecomposer + RequestDecomposer
+
+**Context:**
+- The single `DecomposerAgent` used a generic question-generation approach that treated incidents and service requests identically. Incidents need failure-mode thinking (root cause, scope, recovery, validation); requests need fulfillment thinking (prerequisites, procedure, approval, verification). A single prompt cannot optimally serve both.
+
+**Two-decomposer pattern:**
+
+- **IncidentDecomposer** (`agents/incident_decomposer/__init__.py`) — diagnosis-oriented:
+  - System prompt frames the problem as a failure to be diagnosed
+  - Question archetypes: root cause, scope/blast radius, recovery/rollback, validation
+  - Search strategy: symptom patterns, component names, error codes, "troubleshooting/incident" KB tags
+  - Agent name: `IncidentDecomposer`
+
+- **RequestDecomposer** (`agents/request_decomposer/__init__.py`) — fulfillment-oriented:
+  - System prompt frames the problem as a service to be provisioned
+  - Question archetypes: prerequisites, provisioning procedure, approval workflow, fulfillment verification
+  - Search strategy: service/software/access name, onboarding procedures, approval workflows, "how-to/request-fulfillment" KB tags
+  - Agent name: `RequestDecomposer`
+
+**Workflow:**
+- `IncidentFetchExecutor` → `IncidentDecomposerExecutor` → `EvaluatorExecutor`
+- `RequestFetchExecutor` → `RequestDecomposerExecutor` → `EvaluatorExecutor`
+- Both decomposers converge on `EvaluatorExecutor` unchanged — `ResolutionAnalysis` message type is unchanged
+- Old `DecomposerExecutor` removed; old `decomposer/` agent directory deleted
+
+**Rationale:**
+- Incident questions ("What error code does this produce?") and request questions ("What approval is needed?") are semantically different; one agent prompt cannot be ideal for both
+- Type-specific KB search framing surfaces more relevant articles (troubleshooting guides vs how-to guides)
+- Cleaner workflow graph: routing intent (incident vs request) is preserved all the way through decomposition
+- No message type changes — `ResolutionAnalysis` and `ResolutionQuestion` unchanged; EvaluatorAgent unchanged
+
+**Escalation/handoff:** Both decomposers converge on the Evaluator, which retains full authority over final confidence and routing to Resolution or Escalation agents.
+
