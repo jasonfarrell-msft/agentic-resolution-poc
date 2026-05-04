@@ -24,7 +24,6 @@ app.MapPost("/process", async (ProcessRequest req, IHttpClientFactory httpFactor
         ?? "https://ca-mcp-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/mcp";
     string aiEndpoint = config["AZURE_AI_ENDPOINT"]
         ?? throw new InvalidOperationException("AZURE_AI_ENDPOINT not configured");
-    string? escalationUrl = config["ESCALATION_AGENT_URL"];
     string? clientId = config["AZURE_CLIENT_ID"];
 
     TokenCredential credential = string.IsNullOrWhiteSpace(clientId)
@@ -108,14 +107,6 @@ app.MapPost("/process", async (ProcessRequest req, IHttpClientFactory httpFactor
             matched_ticket_number = result.MatchedTicketNumber
         }, logger, ct);
 
-        if (result.Action == "escalate_incident" && !string.IsNullOrWhiteSpace(escalationUrl))
-        {
-            logger.LogInformation(
-                "Confidence {Confidence} below threshold - routing to escalation agent", result.Confidence);
-            await RouteToEscalationAgentAsync(http, escalationUrl, req.TicketNumber,
-                result.Confidence, 0.8, result.Notes, logger, ct);
-        }
-
         return Results.Ok(result);
     }
     catch (Exception ex)
@@ -177,30 +168,6 @@ static T ParseJsonBlock<T>(string content)
         content = content[lineStart..end].Trim();
     }
     return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
-}
-
-static async Task RouteToEscalationAgentAsync(HttpClient http, string escalationUrl, string ticketNumber,
-    double autoConfidence, double threshold, string? escalationReason, ILogger logger, CancellationToken ct)
-{
-    var payload = new
-    {
-        ticketNumber,
-        autoResolutionConfidence = autoConfidence,
-        confidenceThreshold = threshold,
-        escalationReason
-    };
-    try
-    {
-        using HttpResponseMessage resp = await http.PostAsJsonAsync(
-            escalationUrl.TrimEnd('/') + "/route", payload, ct);
-        resp.EnsureSuccessStatusCode();
-        logger.LogInformation("Escalation agent routed ticket {TicketNumber}", ticketNumber);
-    }
-    catch (Exception ex)
-    {
-        logger.LogWarning(ex, "Escalation agent call failed for ticket {TicketNumber} - ticket left in '{State}' state",
-            ticketNumber, "New");
-    }
 }
 
 internal record ProcessRequest(string TicketNumber);
