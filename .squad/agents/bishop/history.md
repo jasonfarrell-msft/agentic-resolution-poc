@@ -6,6 +6,25 @@
 - **Phase 1 scope:** standby — no AI work until ticket→DB→webhook path is in place.
 - **Created:** 2026-04-29
 
+## Core Context
+
+**Current state (2026-05-05):**
+- Phase 2 AI pipeline architecture finalized with specialized decomposers (IncidentDecomposer + RequestDecomposer) replacing generic DecomposerAgent — better KB retrieval accuracy via type-specific question generation
+- Question-driven resolution pipeline implemented: Classifier → Incident/RequestAgent (fetch) → DecomposerAgent (question-driven KB search) → EvaluatorAgent → Resolution/Escalation
+- Hosted agents in Container Apps with `/invocations` (Foundry protocol) and `/health` endpoints; MCP server for ticket operations (get, search, update)
+- Azure AI Search index `tickets-index` (14 fields, hybrid BM25+vector+semantic reranking, text-embedding-3-small 1536d) ready for seeding with 25 pre-resolved IT scenarios at gate G7
+- No blocking schema or agent design questions remain; Bishop standby on Hicks's Bicep gates (G1–G7)
+
+**Key decisions locked:**
+- Single index, no multi-index KB corpus (Phase 3)
+- Hybrid search: BM25 + vector similarity + semantic reranking; top 5 results to triage agent
+- Incident vs Request dichotomy preserved through decomposition (not collapsed to generic)
+- No tool-calling latency — search results pre-fetched by Function before agent eval
+
+---
+
+## Historical Details
+
 ## Phase 1 Architecture (Apone)
 
 **Phase 1 baseline (your dependency):**
@@ -222,3 +241,8 @@
 
 **Escalation/handoff:** Both decomposers converge on the Evaluator, which retains full authority over final confidence and routing to Resolution or Escalation agents.
 
+
+---
+
+**📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
+Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.

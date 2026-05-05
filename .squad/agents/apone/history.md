@@ -41,3 +41,8 @@
 - **azd + Bicep modules** for IaC — scaffolded in Phase 1 but not deployed until Phase 2.
 - **Managed identity** for all Azure service-to-service auth (no connection strings in config).
 - Key open question: .NET 9 vs .NET 8 LTS — recommended 9, awaiting Jason's call.
+
+---
+
+**📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
+Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.

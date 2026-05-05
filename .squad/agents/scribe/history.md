@@ -14,3 +14,8 @@ Agent Scribe initialized and ready for work.
 ## Learnings
 
 Initial setup complete.
+
+---
+
+**📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
+Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.

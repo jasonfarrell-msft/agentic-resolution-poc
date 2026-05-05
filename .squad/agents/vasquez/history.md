@@ -56,3 +56,8 @@ Total: ~38 test methods scaffolded, all Skip-marked pending impl.
 **Coordination drops** to Hicks (DTO namespace `AgenticResolution.Web.Models.Dtos`, context name `AppDbContext`, dispatcher contract `IWebhookDispatcher.EnqueueAsync(WebhookEnvelope, CT)`) and Ferro (TicketForm `OnSubmit` EventCallback, PriorityBadge enum param + `.priority-{level}` classes) captured in the same decision drop.
 
 **2026-04-29 — Phase 2 test-infrastructure swap plan drafted** — Authored `vasquez-phase2-sql-test-plan.md` recommending Testcontainers SQL Server over ephemeral Azure SQL DB; mapped 39 unskipped tests and fixture-upgrade pattern via `IAsyncLifetime`.
+
+---
+
+**📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
+Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.

@@ -52,3 +52,8 @@
 ### Build
 - `dotnet build` from repo root: **succeeded, 0 warnings, 0 errors**.
 - Note: the local `Models/Ticket.cs` enum in this Web project still shows `Low=1…Critical=4` — that's Hicks's territory (he owns the canonical enum). My code references enum members by name, so display correctness depends on the upstream flip landing. Build passes either way; UI text only renders correctly post-flip.
+
+---
+
+**📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
+Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.
