@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: agentic-resolution
+metadata:
+  template: agentic-resolution@0.0.1-alpha
+
+services:
+  web:
+    project: ./src/dotnet/AgenticResolution.Web
+    language: dotnet
+    host: appservice
+
+  # api: declared but not deploying yet — backend goes to Container Apps once Docker is available
+  # api:
+  #   project: ./src/dotnet/AgenticResolution.Api
+  #   language: dotnet
+  #   host: containerapp

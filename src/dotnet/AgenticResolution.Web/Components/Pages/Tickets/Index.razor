@@ -1,0 +1,225 @@
+@page "/tickets"
+@inject TicketApiClient ApiClient
+
+<PageTitle>Tickets — TicketNow</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Tickets</h1>
+        <p class="text-muted">Track active work and resolution progress.</p>
+    </div>
+</div>
+
+@if (!ApiClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card filter-bar">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Assignee</label>
+                    <input class="form-control" placeholder="Name or alias" @bind="Filter.AssignedTo" @bind:after="OnFilterChanged" />
+                </div>
+                <div class="col-12 col-md-5">
+                    <label class="form-label">Status</label>
+                    <div class="status-filters">
+                        @foreach (var state in AvailableStates)
+                        {
+                            <label class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" checked="@Filter.States.Contains(state)"
+                                       @onchange="args => ToggleState(state, args)" />
+                                <span class="form-check-label">@GetStateLabel(state)</span>
+                            </label>
+                        }
+                    </div>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label">Sort By</label>
+                    <select class="form-select" @bind="Filter.Sort" @bind:after="OnFilterChanged">
+                        <option value="@TicketSortField.Created">Created</option>
+                        <option value="@TicketSortField.Modified">Modified</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label">Direction</label>
+                    <button class="btn btn-outline-secondary w-100" type="button" @onclick="ToggleSortDirection">
+                        @(Filter.Direction == SortDirection.Asc ? "Ascending" : "Descending")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger mt-4">@ErrorMessage</div>
+    }
+    else if (IsLoading)
+    {
+        <div class="ticket-table-wrap mt-4">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="loading-skeleton mb-2"></div>
+            }
+        </div>
+    }
+    else if (Tickets is null || Tickets.Items.Count == 0)
+    {
+        <div class="empty-state">
+            <h4>No tickets match your filters.</h4>
+            <p>Try adjusting status or assignee to find more work.</p>
+        </div>
+    }
+    else
+    {
+        <div class="ticket-table-wrap mt-4">
+            <table class="ticket-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Short Description</th>
+                        <th>Priority</th>
+                        <th>State</th>
+                        <th>Assigned To</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var ticket in Tickets.Items)
+                    {
+                        <tr class="ticket-row">
+                            <td class="ticket-num"><a href="@($"/tickets/{ticket.Number}")">@ticket.Number</a></td>
+                            <td class="ticket-short-desc"><a href="@($"/tickets/{ticket.Number}")">@ticket.ShortDescription</a></td>
+                            <td><PriorityBadge Priority="ticket.Priority" /></td>
+                            <td><StateBadge State="ticket.State" /></td>
+                            <td>@(string.IsNullOrWhiteSpace(ticket.AssignedTo) ? "Unassigned" : ticket.AssignedTo)</td>
+                            <td>@ticket.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination-bar">
+            <button class="btn btn-outline-secondary" disabled="@(!CanGoBack)" @onclick="PreviousPage">Previous</button>
+            <span>Page @Filter.Page of @Tickets.TotalPages</span>
+            <button class="btn btn-outline-secondary" disabled="@(!CanGoForward)" @onclick="NextPage">Next</button>
+        </div>
+    }
+}
+
+@code {
+    private readonly TicketFilter Filter = new();
+    private PagedResponse<TicketResponse>? Tickets;
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    private static readonly TicketState[] AvailableStates =
+    [
+        TicketState.New,
+        TicketState.InProgress,
+        TicketState.Resolved,
+        TicketState.Closed,
+        TicketState.Cancelled
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTicketsAsync();
+    }
+
+    private async Task LoadTicketsAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        StateHasChanged();
+
+        if (!ApiClient.IsConfigured)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            Tickets = await ApiClient.GetTicketsAsync(Filter);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task OnFilterChanged()
+    {
+        Filter.Page = 1;
+        await LoadTicketsAsync();
+    }
+
+    private async Task ToggleSortDirection()
+    {
+        Filter.Direction = Filter.Direction == SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
+        Filter.Page = 1;
+        await LoadTicketsAsync();
+    }
+
+    private async Task ToggleState(TicketState state, ChangeEventArgs args)
+    {
+        var isChecked = args.Value is bool value && value;
+        if (isChecked)
+        {
+            Filter.States.Add(state);
+        }
+        else
+        {
+            Filter.States.Remove(state);
+        }
+
+        Filter.Page = 1;
+        await LoadTicketsAsync();
+    }
+
+    private async Task PreviousPage()
+    {
+        if (!CanGoBack)
+        {
+            return;
+        }
+
+        Filter.Page--;
+        await LoadTicketsAsync();
+    }
+
+    private async Task NextPage()
+    {
+        if (!CanGoForward)
+        {
+            return;
+        }
+
+        Filter.Page++;
+        await LoadTicketsAsync();
+    }
+
+    private bool CanGoBack => Filter.Page > 1;
+    private bool CanGoForward => Tickets is not null && Filter.Page < Tickets.TotalPages;
+
+    private static string GetStateLabel(TicketState state) => state switch
+    {
+        TicketState.InProgress => "In Progress",
+        _ => state.ToString()
+    };
+}

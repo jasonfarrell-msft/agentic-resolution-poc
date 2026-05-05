@@ -1,0 +1,223 @@
+@page "/tickets/{Number}"
+@inject TicketApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>Ticket @Number — TicketNow</PageTitle>
+
+@if (!ApiClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else if (IsLoading)
+{
+    <div class="loading-skeleton"></div>
+}
+else if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger">@ErrorMessage</div>
+}
+else if (Details is null)
+{
+    <div class="empty-state">
+        <h4>Ticket not found.</h4>
+        <p>Return to the ticket list to continue.</p>
+    </div>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <h1>Ticket @Details.Ticket.Number</h1>
+            <p class="text-muted">@Details.Ticket.ShortDescription</p>
+        </div>
+        @if (CanResolve)
+        {
+            <button class="btn btn-primary" disabled="@IsResolving" @onclick="ResolveTicketAsync">
+                @(IsResolving ? "Resolving..." : "Resolve with AI")
+            </button>
+        }
+    </div>
+
+    <div class="detail-grid mb-4">
+        <div class="detail-card">
+            <h4>Summary</h4>
+            <div class="detail-field">
+                <span class="label">State</span>
+                <StateBadge State="Details.Ticket.State" />
+            </div>
+            <div class="detail-field">
+                <span class="label">Priority</span>
+                <PriorityBadge Priority="Details.Ticket.Priority" />
+            </div>
+            <div class="detail-field">
+                <span class="label">Assigned To</span>
+                <span>@(string.IsNullOrWhiteSpace(Details.Ticket.AssignedTo) ? "Unassigned" : Details.Ticket.AssignedTo)</span>
+            </div>
+            <div class="detail-field">
+                <span class="label">Caller</span>
+                <span>@(string.IsNullOrWhiteSpace(Details.Ticket.Caller) ? "Unknown" : Details.Ticket.Caller)</span>
+            </div>
+            <div class="detail-field">
+                <span class="label">Category</span>
+                <span>@(string.IsNullOrWhiteSpace(Details.Ticket.Category) ? "Uncategorized" : Details.Ticket.Category)</span>
+            </div>
+            <div class="detail-field">
+                <span class="label">Created</span>
+                <span>@Details.Ticket.CreatedAt.ToLocalTime().ToString("f")</span>
+            </div>
+            @if (Details.Ticket.ModifiedAt is not null)
+            {
+                <div class="detail-field">
+                    <span class="label">Last Updated</span>
+                    <span>@Details.Ticket.ModifiedAt.Value.ToLocalTime().ToString("f")</span>
+                </div>
+            }
+        </div>
+
+        <div class="detail-card">
+            <h4>Description</h4>
+            <p>@(string.IsNullOrWhiteSpace(Details.Ticket.Description) ? "No additional description provided." : Details.Ticket.Description)</p>
+        </div>
+    </div>
+
+    <div class="detail-card mb-4">
+        <h4>Comments</h4>
+        @if (OrderedComments.Count == 0)
+        {
+            <div class="empty-state">No comments yet.</div>
+        }
+        else
+        {
+            <div class="comment-list">
+                @foreach (var comment in OrderedComments)
+                {
+                    <div class="comment-card @(comment.IsInternal ? "internal" : string.Empty)">
+                        <div class="comment-meta">
+                            <span>@comment.Author</span>
+                            <span>@comment.CreatedAt.ToLocalTime().ToString("g")</span>
+                        </div>
+                        <div class="mt-2">@comment.Body</div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="detail-card">
+        <h4>Workflow Runs</h4>
+        @if (OrderedRuns.Count == 0)
+        {
+            <div class="empty-state">No workflow runs yet.</div>
+        }
+        else
+        {
+            <div class="run-list">
+                @foreach (var run in OrderedRuns)
+                {
+                    <div class="run-card">
+                        <div class="run-card-header">
+                            <RunStatusBadge Status="run.Status" />
+                            <a class="btn btn-sm btn-outline-secondary" href="@($"/tickets/{Number}/runs/{run.Id}")">View Run</a>
+                        </div>
+                        <div class="ticket-meta">
+                            <span>Triggered by @(!string.IsNullOrWhiteSpace(run.TriggeredBy) ? run.TriggeredBy : "Automation")</span>
+                            <span>Started @run.StartedAt.ToLocalTime().ToString("g")</span>
+                            @if (run.CompletedAt is not null)
+                            {
+                                <span>Completed @run.CompletedAt.Value.ToLocalTime().ToString("g")</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(run.FinalAction))
+                        {
+                            <div class="mt-2"><strong>Final Action:</strong> @run.FinalAction</div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string Number { get; set; } = string.Empty;
+
+    private TicketDetailResponse? Details;
+    private bool IsLoading = true;
+    private bool IsResolving;
+    private string? ErrorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadDetailsAsync();
+    }
+
+    private async Task LoadDetailsAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+
+        if (!ApiClient.IsConfigured)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            Details = await ApiClient.GetTicketDetailsAsync(Number);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private IReadOnlyList<CommentResponse> OrderedComments =>
+        Details is null
+            ? Array.Empty<CommentResponse>()
+            : Details.Comments.OrderBy(comment => comment.CreatedAt).ToList();
+
+    private IReadOnlyList<WorkflowRunResponse> OrderedRuns =>
+        Details is null
+            ? Array.Empty<WorkflowRunResponse>()
+            : Details.Runs.OrderByDescending(run => run.StartedAt).ToList();
+
+    private bool CanResolve =>
+        Details?.Ticket.State is TicketState.New or TicketState.InProgress;
+
+    private async Task ResolveTicketAsync()
+    {
+        if (IsResolving)
+        {
+            return;
+        }
+
+        IsResolving = true;
+        ErrorMessage = null;
+
+        try
+        {
+            var response = await ApiClient.ResolveTicketAsync(Number, null);
+            Navigation.NavigateTo($"/tickets/{Number}/runs/{response.RunId}");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsResolving = false;
+        }
+    }
+}

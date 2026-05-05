@@ -1,0 +1,26 @@
+<span class="badge badge-pill state-badge @CssClass">@StateLabel</span>
+
+@code {
+    [Parameter]
+    public TicketState State { get; set; }
+
+    private string CssClass => State switch
+    {
+        TicketState.New => "state-new",
+        TicketState.InProgress => "state-inprogress",
+        TicketState.Resolved => "state-resolved",
+        TicketState.Closed => "state-closed",
+        TicketState.Cancelled => "state-cancelled",
+        _ => "state-closed"
+    };
+
+    private string StateLabel => State switch
+    {
+        TicketState.InProgress => "In Progress",
+        TicketState.New => "New",
+        TicketState.Resolved => "Resolved",
+        TicketState.Closed => "Closed",
+        TicketState.Cancelled => "Cancelled",
+        _ => State.ToString()
+    };
+}

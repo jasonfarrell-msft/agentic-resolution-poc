@@ -1,0 +1,172 @@
+@page "/knowledge-base/{Number}"
+@inject TicketApiClient ApiClient
+@inject NavigationManager Navigation
+
+<PageTitle>@(ArticleDetail is null ? "Article" : ArticleDetail.Title) — TicketNow</PageTitle>
+
+@if (!ApiClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else if (IsLoading)
+{
+    <div class="loading-skeleton"></div>
+}
+else if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger">@ErrorMessage</div>
+}
+else if (ArticleDetail is null)
+{
+    <div class="empty-state">
+        <h4>Article not found.</h4>
+        <p><a href="/knowledge-base">Return to Knowledge Base</a></p>
+    </div>
+}
+else
+{
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="kb-breadcrumb">
+            <li><a href="/knowledge-base">Knowledge Base</a></li>
+            <li>@ArticleDetail.Category</li>
+            <li>@ArticleDetail.Title</li>
+        </ol>
+    </nav>
+
+    <div class="mb-3">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="GoBack">← Back</button>
+    </div>
+
+    <div class="detail-card kb-article-card">
+        <h1 class="kb-article-title">@ArticleDetail.Title</h1>
+        <div class="kb-article-meta">
+            <span>✍️ @ArticleDetail.Author</span>
+            <span>📁 @ArticleDetail.Category</span>
+            <span>🕒 @ArticleDetail.UpdatedAt.ToLocalTime().ToString("MMM d, yyyy")</span>
+            <span>👁 @ArticleDetail.ViewCount views</span>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(ArticleDetail.Tags))
+        {
+            <div class="kb-tags">
+                @foreach (var tag in ArticleDetail.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    <span class="kb-tag">@tag</span>
+                }
+            </div>
+        }
+
+        <div class="kb-article-body">
+            @ArticleDetail.Body
+        </div>
+    </div>
+}
+
+<style>
+    .kb-breadcrumb {
+        display: flex;
+        gap: 0.5rem;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 0.875rem;
+        color: var(--text-muted);
+    }
+
+    .kb-breadcrumb li + li::before {
+        content: "›";
+        margin-right: 0.5rem;
+    }
+
+    .kb-breadcrumb a {
+        color: var(--link-color);
+    }
+
+    .kb-article-card {
+        max-width: 760px;
+    }
+
+    .kb-article-title {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--sn-navy);
+        margin-bottom: 0.75rem;
+    }
+
+    .kb-article-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
+    }
+
+    .kb-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .kb-tag {
+        background-color: var(--sn-teal);
+        color: var(--sn-white);
+        font-size: 0.75rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+    }
+
+    .kb-article-body {
+        line-height: 1.7;
+        color: var(--text-primary);
+        white-space: pre-wrap;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Number { get; set; } = string.Empty;
+
+    private KnowledgeArticleDetailResponse? ArticleDetail;
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadArticleAsync();
+    }
+
+    private async Task LoadArticleAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+
+        if (!ApiClient.IsConfigured)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            ArticleDetail = await ApiClient.GetArticleAsync(Number);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void GoBack() => Navigation.NavigateTo("/knowledge-base");
+}

@@ -17,16 +17,69 @@ public sealed class AgentOrchestrationService
         _logger = logger;
     }
 
-    public async Task<AgentPipelineResult> ProcessTicketAsync(string ticketNumber,
-        CancellationToken ct = default)
+    /// <summary>
+    /// Orchestrate agent pipeline for a ticket with progress tracking.
+    /// Mirrors Python workflow structure: Classifier → Fetch → Decomposer → Evaluator → Resolution/Escalation.
+    /// </summary>
+    public async Task<AgentPipelineResult> ProcessTicketAsync(string ticketNumber, Guid? runId = null,
+        IWorkflowProgressTracker? progress = null, CancellationToken ct = default)
     {
+        const string ClassifierExecutor = "ClassifierExecutor";
+        const string IncidentFetchExecutor = "IncidentFetchExecutor";
+        const string IncidentDecomposerExecutor = "IncidentDecomposerExecutor";
+        const string EvaluatorExecutor = "EvaluatorExecutor";
+        const string ResolutionExecutor = "ResolutionExecutor";
+        const string EscalationExecutor = "EscalationExecutor";
+
         string incidentUrl = _config["Agents:IncidentUrl"]
             ?? throw new InvalidOperationException("Agents:IncidentUrl not configured.");
 
+        // Stage 1: Classification (simplified - all tickets routed to incident for now)
+        if (progress is not null && runId.HasValue)
+            await progress.ExecutorStartedAsync(runId.Value, ClassifierExecutor, ct);
+
         _logger.LogInformation("Routing ticket {TicketNumber} directly to incident agent", ticketNumber);
+
+        if (progress is not null && runId.HasValue)
+        {
+            await progress.ExecutorRoutedAsync(runId.Value, ClassifierExecutor, "incident", ct);
+            await progress.ExecutorCompletedAsync(runId.Value, ClassifierExecutor, ct);
+        }
+
+        // Stage 2: Incident fetch + decomposition (combined in current agent)
+        if (progress is not null && runId.HasValue)
+        {
+            await progress.ExecutorStartedAsync(runId.Value, IncidentFetchExecutor, ct);
+            await progress.ExecutorCompletedAsync(runId.Value, IncidentFetchExecutor, ct);
+            await progress.ExecutorStartedAsync(runId.Value, IncidentDecomposerExecutor, ct);
+        }
 
         var result = await CallAgentAsync<ResolutionResult>(
             incidentUrl.TrimEnd('/') + "/process", new { ticketNumber }, ct);
+
+        if (progress is not null && runId.HasValue)
+            await progress.ExecutorCompletedAsync(runId.Value, IncidentDecomposerExecutor, ct);
+
+        // Stage 3: Evaluator (confidence check)
+        if (progress is not null && runId.HasValue)
+        {
+            await progress.ExecutorStartedAsync(runId.Value, EvaluatorExecutor, ct);
+            await progress.ExecutorOutputAsync(runId.Value, EvaluatorExecutor,
+                $"Confidence: {result.Confidence:F2}, Action: {result.Action}", ct);
+            await progress.ExecutorCompletedAsync(runId.Value, EvaluatorExecutor, ct);
+        }
+
+        // Stage 4: Resolution or Escalation
+        string finalExecutor = result.Action?.Contains("escalate", StringComparison.OrdinalIgnoreCase) == true
+            ? EscalationExecutor
+            : ResolutionExecutor;
+
+        if (progress is not null && runId.HasValue)
+        {
+            await progress.ExecutorStartedAsync(runId.Value, finalExecutor, ct);
+            await progress.ExecutorOutputAsync(runId.Value, finalExecutor, result.Notes ?? string.Empty, ct);
+            await progress.ExecutorCompletedAsync(runId.Value, finalExecutor, ct);
+        }
 
         _logger.LogInformation(
             "Incident agent completed for {TicketNumber}: action={Action} confidence={Confidence:F2}",

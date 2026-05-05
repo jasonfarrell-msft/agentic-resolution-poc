@@ -1,0 +1,26 @@
+<span class="badge badge-pill run-status @CssClass">@StatusLabel</span>
+
+@code {
+    [Parameter]
+    public WorkflowRunStatus Status { get; set; }
+
+    private string CssClass => Status switch
+    {
+        WorkflowRunStatus.Pending => "run-pending",
+        WorkflowRunStatus.Running => "run-running",
+        WorkflowRunStatus.Completed => "run-completed",
+        WorkflowRunStatus.Failed => "run-failed",
+        WorkflowRunStatus.Escalated => "run-escalated",
+        _ => "run-pending"
+    };
+
+    private string StatusLabel => Status switch
+    {
+        WorkflowRunStatus.Pending => "Pending",
+        WorkflowRunStatus.Running => "Running",
+        WorkflowRunStatus.Completed => "Completed",
+        WorkflowRunStatus.Failed => "Failed",
+        WorkflowRunStatus.Escalated => "Escalated",
+        _ => Status.ToString()
+    };
+}

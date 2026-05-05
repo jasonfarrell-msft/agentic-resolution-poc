@@ -90,33 +90,6 @@ public class WebhookDispatchService : BackgroundService
             {
                 _logger.LogError(ex, "Webhook dispatch failed permanently for {EventId}", envelope.Payload.EventId);
             }
-
-            string eventType = envelope.Payload.EventType;
-            if (eventType is "ticket.created" or "ticket.updated")
-                _ = RunAgentAsync(envelope.Payload.Ticket);
-        }
-    }
-
-    private async Task RunAgentAsync(TicketWebhookSnapshot snapshot)
-    {
-        if (string.Equals(snapshot.State, "Closed", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation("Ticket {Number} is already Closed — skipping agent pipeline", snapshot.Number);
-            return;
-        }
-
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var svc = scope.ServiceProvider.GetRequiredService<AgentOrchestrationService>();
-            var result = await svc.ProcessTicketAsync(snapshot.Number, CancellationToken.None);
-            _logger.LogInformation(
-                "Agent pipeline completed for ticket {Number}: {Classification} ➜ {Action} (confidence: {Confidence:F2})",
-                snapshot.Number, result.Classification, result.Action, result.ResolutionConfidence);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Agent run failed for ticket {Number}", snapshot.Number);
         }
     }
 
@@ -188,13 +161,28 @@ public record TicketWebhookSnapshot(string Number, string ShortDescription, stri
             t.State.ToString(), t.Caller, null, t.CreatedAt);
 }
 
-public record WebhookPayload(Guid EventId, string EventType, DateTime Timestamp, TicketWebhookSnapshot Ticket)
+public record WebhookPayload(Guid EventId, string EventType, DateTime Timestamp, TicketWebhookSnapshot Ticket, Guid? RunId = null, string? ErrorMessage = null)
 {
     public static WebhookPayload ForTicketCreated(Ticket t) =>
         new(Guid.NewGuid(), "ticket.created", DateTime.UtcNow, TicketWebhookSnapshot.From(t));
 
     public static WebhookPayload ForTicketUpdated(Ticket t) =>
         new(Guid.NewGuid(), "ticket.updated", DateTime.UtcNow, TicketWebhookSnapshot.From(t));
+
+    public static WebhookPayload ForResolutionStarted(Ticket t, Guid runId) =>
+        new(Guid.NewGuid(), "resolution.started", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
+
+    public static WebhookPayload ForWorkflowRunning(Ticket t, Guid runId) =>
+        new(Guid.NewGuid(), "workflow.running", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
+
+    public static WebhookPayload ForWorkflowCompleted(Ticket t, Guid runId) =>
+        new(Guid.NewGuid(), "workflow.completed", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
+
+    public static WebhookPayload ForWorkflowEscalated(Ticket t, Guid runId) =>
+        new(Guid.NewGuid(), "workflow.escalated", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
+
+    public static WebhookPayload ForWorkflowFailed(Ticket t, Guid runId, string errorMessage) =>
+        new(Guid.NewGuid(), "workflow.failed", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId, errorMessage);
 }
 
 public record WebhookEnvelope(WebhookPayload Payload, int Attempt = 0);
