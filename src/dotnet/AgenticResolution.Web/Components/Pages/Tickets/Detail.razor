@@ -71,11 +71,11 @@ else
                 <span class="label">Created</span>
                 <span>@Details.Ticket.CreatedAt.ToLocalTime().ToString("f")</span>
             </div>
-            @if (Details.Ticket.ModifiedAt is not null)
+            @if (Details.Ticket.UpdatedAt is not null)
             {
                 <div class="detail-field">
                     <span class="label">Last Updated</span>
-                    <span>@Details.Ticket.ModifiedAt.Value.ToLocalTime().ToString("f")</span>
+                    <span>@Details.Ticket.UpdatedAt.Value.ToLocalTime().ToString("f")</span>
                 </div>
             }
         </div>
