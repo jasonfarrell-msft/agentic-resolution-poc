@@ -1,0 +1,15 @@
+<span class="badge badge-pill priority-badge @CssClass">@Priority</span>
+
+@code {
+    [Parameter]
+    public TicketPriority Priority { get; set; }
+
+    private string CssClass => Priority switch
+    {
+        TicketPriority.Critical => "priority-critical",
+        TicketPriority.High => "priority-high",
+        TicketPriority.Moderate => "priority-moderate",
+        TicketPriority.Low => "priority-low",
+        _ => "priority-low"
+    };
+}

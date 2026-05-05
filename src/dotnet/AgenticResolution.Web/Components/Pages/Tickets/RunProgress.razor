@@ -1,0 +1,280 @@
+@page "/tickets/{Number}/runs/{RunId:guid}"
+@implements IDisposable
+@inject TicketApiClient ApiClient
+
+<PageTitle>Run @RunId — TicketNow</PageTitle>
+
+@if (!ApiClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else if (IsLoading)
+{
+    <div class="loading-skeleton"></div>
+}
+else if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger">@ErrorMessage</div>
+}
+else if (Run is null)
+{
+    <div class="empty-state">
+        <h4>Run not found.</h4>
+        <p>Return to the ticket to start a new resolution.</p>
+    </div>
+}
+else
+{
+    <div class="run-progress-header">
+        <div>
+            <h1>Ticket @Ticket?.Number</h1>
+            <p class="text-muted">@Ticket?.ShortDescription</p>
+        </div>
+        <RunStatusBadge Status="Run.Status" />
+    </div>
+
+    <div class="timeline">
+        @foreach (var step in Steps)
+        {
+            var stepEvent = GetLatestEvent(step);
+            var stepStatus = GetStepStatus(stepEvent);
+            <div class="timeline-step">
+                <div class="step-indicator @GetStepIndicatorClass(stepStatus)"></div>
+                <div>
+                    <div class="step-title">@step.Title</div>
+                    <div class="step-meta">
+                        <span>@(stepEvent?.ExecutorId ?? "Awaiting executor")</span>
+                        <span>@(stepEvent?.EventType ?? "Pending")</span>
+                        @if (stepEvent is not null)
+                        {
+                            <span>@stepEvent.Timestamp.ToLocalTime().ToString("g")</span>
+                        }
+                    </div>
+                    @if (stepEvent is not null)
+                    {
+                        <div class="step-payload">@TruncatePayload(stepEvent.Payload)</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (IsTerminalStatus(Run.Status))
+    {
+        <div class="final-card">
+            <h4>Final Result</h4>
+            <div class="detail-field">
+                <span class="label">Final Action</span>
+                <span>@(string.IsNullOrWhiteSpace(Run.FinalAction) ? "No action recorded." : Run.FinalAction)</span>
+            </div>
+            <div class="detail-field">
+                <span class="label">Confidence</span>
+                <span>@FormatConfidence(Run.FinalConfidence)</span>
+            </div>
+            @if (Run.CompletedAt is not null)
+            {
+                <div class="detail-field">
+                    <span class="label">Completed</span>
+                    <span>@Run.CompletedAt.Value.ToLocalTime().ToString("f")</span>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public string Number { get; set; } = string.Empty;
+
+    [Parameter]
+    public Guid RunId { get; set; }
+
+    private WorkflowRunResponse? Run;
+    private TicketResponse? Ticket;
+    private IReadOnlyList<WorkflowRunEventResponse> Events = Array.Empty<WorkflowRunEventResponse>();
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+    private CancellationTokenSource? _pollingCts;
+
+    private readonly IReadOnlyList<RunStep> Steps =
+    [
+        new RunStep("Classifier", ["Classifier"]),
+        new RunStep("Incident Fetch / Request Fetch", ["IncidentFetch", "RequestFetch"]),
+        new RunStep("Incident Decomposer / Request Decomposer", ["IncidentDecomposer", "RequestDecomposer"]),
+        new RunStep("Evaluator", ["Evaluator"]),
+        new RunStep("Resolution / Escalation", ["Resolution", "Escalation"])
+    ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _pollingCts?.Cancel();
+        _pollingCts = new CancellationTokenSource();
+        await LoadRunAsync(_pollingCts.Token);
+        _ = PollRunEventsAsync(_pollingCts.Token);
+    }
+
+    private async Task LoadRunAsync(CancellationToken cancellationToken)
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+
+        if (!ApiClient.IsConfigured)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        try
+        {
+            Run = await ApiClient.GetRunAsync(RunId, cancellationToken);
+            Events = await ApiClient.GetRunEventsAsync(RunId, cancellationToken);
+            var details = await ApiClient.GetTicketDetailsAsync(Number, cancellationToken);
+            Ticket = details.Ticket;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task PollRunEventsAsync(CancellationToken cancellationToken)
+    {
+        if (!ApiClient.IsConfigured)
+        {
+            return;
+        }
+
+        while (!cancellationToken.IsCancellationRequested && Run is not null && !IsTerminalStatus(Run.Status))
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                Events = await ApiClient.GetRunEventsAsync(RunId, cancellationToken);
+                Run = await ApiClient.GetRunAsync(RunId, cancellationToken);
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = ex.Message;
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+        }
+    }
+
+    private WorkflowRunEventResponse? GetLatestEvent(RunStep step)
+    {
+        return Events
+            .Where(e => step.Matches(e.ExecutorId))
+            .OrderByDescending(e => e.Timestamp)
+            .FirstOrDefault();
+    }
+
+    private static RunStepStatus GetStepStatus(WorkflowRunEventResponse? stepEvent)
+    {
+        if (stepEvent is null)
+        {
+            return RunStepStatus.Pending;
+        }
+
+        if (stepEvent.EventType.Contains("Fail", StringComparison.OrdinalIgnoreCase) ||
+            stepEvent.EventType.Contains("Error", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunStepStatus.Failed;
+        }
+
+        if (stepEvent.EventType.Contains("Escalated", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunStepStatus.Escalated;
+        }
+
+        if (stepEvent.EventType.Contains("Start", StringComparison.OrdinalIgnoreCase))
+        {
+            return RunStepStatus.Running;
+        }
+
+        return RunStepStatus.Completed;
+    }
+
+    private static string GetStepIndicatorClass(RunStepStatus status) => status switch
+    {
+        RunStepStatus.Running => "step-running",
+        RunStepStatus.Completed => "step-completed",
+        RunStepStatus.Failed => "step-failed",
+        RunStepStatus.Escalated => "step-escalated",
+        _ => "step-pending"
+    };
+
+    private static string TruncatePayload(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return "No payload provided.";
+        }
+
+        var singleLine = payload.Replace("\r", " ").Replace("\n", " ").Trim();
+        return singleLine.Length <= 180 ? singleLine : $"{singleLine[..180]}…";
+    }
+
+    private static string FormatConfidence(double? confidence)
+    {
+        if (confidence is null)
+        {
+            return "Not available";
+        }
+
+        var normalized = confidence.Value > 1 ? confidence.Value / 100 : confidence.Value;
+        return normalized.ToString("P0");
+    }
+
+    private static bool IsTerminalStatus(WorkflowRunStatus status) =>
+        status is WorkflowRunStatus.Completed or WorkflowRunStatus.Failed or WorkflowRunStatus.Escalated;
+
+    public void Dispose()
+    {
+        _pollingCts?.Cancel();
+        _pollingCts?.Dispose();
+    }
+
+    private sealed record RunStep(string Title, string[] Executors)
+    {
+        public bool Matches(string? executorId)
+        {
+            if (string.IsNullOrWhiteSpace(executorId))
+            {
+                return false;
+            }
+
+            return Executors.Any(executor =>
+                executorId.Contains(executor, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private enum RunStepStatus
+    {
+        Pending,
+        Running,
+        Completed,
+        Failed,
+        Escalated
+    }
+}

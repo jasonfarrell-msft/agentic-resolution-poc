@@ -57,3 +57,114 @@
 
 **📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
 Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.
+
+---
+
+## 2026-05-05 — Resolve Button Flow & Progress Listening Specification
+
+**Trigger:** User directive (Jason Farrell via `copilot-directive-2026-05-05T134319-resolve-webhook.md`) — Resolve should fire webhook and return immediately; frontend must listen for progress using returned runId.
+
+**Context:** Apone's architecture decision (`apone-blazor-resolution-architecture.md`) already outlined the decoupled workflow: `POST /resolve` → enqueue → return runId → frontend listens via SignalR. The directive reinforces this: **no blocking waits on Resolve click**.
+
+### What I specified
+
+**Decision document:** `.squad/decisions/inbox/ferro-resolve-listening-flow.md`
+
+**Key behaviors:**
+1. **Resolve action on ticket detail page:**
+   - Click "Resolve with AI" → `POST /api/tickets/{number}/resolve`
+   - API returns HTTP 202 Accepted with `{ runId, statusUrl, eventsUrl }`
+   - Page immediately navigates to `/tickets/{number}/runs/{runId}` — **no waiting for completion**
+
+2. **Run progress page (`/tickets/{number}/runs/{runId}`):**
+   - On load: fetch initial snapshot via `GET /api/runs/{runId}` (status + all events so far)
+   - Connect to SignalR hub `/hubs/runs`, join group `run-{runId}`
+   - Subscribe to `ReceiveRunEvent` messages
+   - Each incoming event appends to timeline, updates executor status icons (⏱ → ⏳ → ✓ or ❌)
+   - On terminal status (`Completed`, `Failed`, `Escalated`), disconnect hub and show final state
+   - **Fallback:** if SignalR unavailable, poll `GET /api/runs/{runId}` every 2 seconds
+
+3. **Timeline UI structure:**
+   - Executor lanes: ClassifierExecutor → IncidentDecomposerExecutor/RequestDecomposerExecutor → KbSearchExecutor → EvaluatorExecutor → ResolutionSummarizerExecutor
+   - Event types rendered: Started, AgentResponse (parse JSON payload), Output, Error, Completed
+   - Status badges: Pending (yellow), Running (blue spinner), Completed (green checkmark), Failed (red X), Escalated (orange)
+
+4. **Idempotency:** If `POST /resolve` returns HTTP 200 (run already exists), treat same as 202 — navigate to existing run's progress page.
+
+5. **Edge cases covered:**
+   - Page refresh mid-run: resumes listening from current snapshot
+   - SignalR failure: falls back to polling with banner message
+   - Run failure: shows error message, offers "Retry" button (creates new run)
+   - Concurrent resolve attempts: 409 Conflict → show error, do not navigate
+
+### API contract dependencies (Hicks owns)
+
+**Endpoints required:**
+- `POST /api/tickets/{number}/resolve` → `ResolveTicketResponse { runId, statusUrl, eventsUrl }` (HTTP 202)
+- `GET /api/runs/{runId}` → `WorkflowRunResponse { id, ticketNumber, status, events[], ... }`
+- SignalR hub `/hubs/runs` with methods `JoinRun(runId)`, `LeaveRun(runId)`, event `ReceiveRunEvent(runId, event)`
+- SSE fallback `GET /api/runs/{runId}/events` (optional, low priority)
+
+**Database entities required:**
+- `WorkflowRun` table (id, ticketId, status, triggeredBy, note, startedAt, completedAt, finalAction, finalConfidence)
+- `WorkflowRunEvent` table (id, runId, sequence, executorId, eventType, payload, timestamp)
+
+### Orchestrator dependency (Bishop owns)
+
+**Required:** `AgentOrchestrationService` must expose streaming progress API — `IAsyncEnumerable<AgentExecutorEvent> ProcessTicketWithProgressAsync(...)` or similar.
+
+Without streaming:
+- Timeline will be empty until workflow completes (no live updates)
+- User sees spinner → final result (loses "executor lane" UX value)
+- Decision doc flags this as a **blocking risk** for progress page implementation
+
+### DTOs to add (Ferro or Hicks — depends on `AgenticResolution.Contracts` creation)
+
+```csharp
+public record ResolveTicketRequest(string? Note = null);
+public record ResolveTicketResponse(Guid RunId, string StatusUrl, string EventsUrl);
+public record WorkflowRunResponse(
+    Guid Id, Guid TicketId, string TicketNumber, WorkflowRunStatus Status,
+    string? TriggeredBy, string? Note, DateTime StartedAt, DateTime? CompletedAt,
+    string? FinalAction, double? FinalConfidence,
+    IReadOnlyList<WorkflowRunEventResponse> Events
+);
+public record WorkflowRunEventResponse(
+    Guid Id, int Sequence, string? ExecutorId, string EventType, string? Payload, DateTime Timestamp
+);
+public enum WorkflowRunStatus { Pending = 0, Running = 1, Completed = 2, Failed = 3, Escalated = 4 }
+```
+
+If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's architecture), these move there. Otherwise, I mirror them in `TicketsApiClient.cs` like I did with `TicketListResponse` in Phase 1.
+
+### Implementation sequence (Ferro owns frontend, but blocked on backend)
+
+**Pre-requisites:**
+1. ✅ Decision document written (this work)
+2. ⏳ Hicks implements resolve endpoint + runs endpoints + SignalR hub
+3. ⏳ Bishop adds streaming API to orchestrator
+
+**Once unblocked:**
+1. Extend `TicketsApiClient` with `ResolveAsync` and `GetRunAsync` methods
+2. Add "Resolve with AI" button to ticket detail page with navigation on success
+3. Create `Pages/Tickets/RunProgress.razor` with SignalR client + event timeline rendering
+4. Add status badges, error handling, polling fallback
+5. Manual smoke test: create → resolve → watch live updates → verify final state
+
+### Status
+
+**Specified, not implemented.** The `AgenticResolution.Web` project does not exist yet (Apone's architecture proposes it, but Hicks hasn't created the Blazor app). This decision doc defines the **expected contract** so backend and frontend can proceed in parallel once the Web project is scaffolded.
+
+**Decision drop location:** `.squad/decisions/inbox/ferro-resolve-listening-flow.md`
+
+**Next step:** Wait for Hicks to create the Web project, implement the API endpoints, and for Bishop to expose orchestrator streaming. Then I implement the UI as specified above.
+
+---
+
+## 2026-05-06 — AgenticResolution.Web project shipped
+
+- Scaffolded Blazor Server app at `src/dotnet/AgenticResolution.Web` and created `AgenticResolution.sln` under `src/dotnet/`.
+- Implemented `TicketApiClient` with typed DTOs, filtering support, and resolve/run APIs.
+- Built ticket list, detail, and run progress pages with sidebar layout, badges, and timeline UI.
+- Added branded styling in `wwwroot/app.css`, updated appsettings for API base URL, and created Dockerfile for App Service (port 8080).
+- `dotnet build src/dotnet/AgenticResolution.sln` succeeded (warning: NU1510 for Microsoft.Extensions.Http).

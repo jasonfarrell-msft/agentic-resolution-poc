@@ -1,0 +1,9 @@
+| Field | Value |
+|-------|-------|
+| **Agent routed** | Bishop (AI/Agents Specialist) |
+| **Why chosen** | User directive clarification revealed critical bug: webhook dispatch was enqueuing but NOT starting orchestration. Bishop owns agent orchestration service and progress tracking. Must decouple webhook (notification) from orchestration (explicit resolution action). |
+| **Mode** | `sync` |
+| **Why this mode** | Blocking decision: Progress event surface is prerequisite for Ferro (workflow UI) and Hicks (SignalR future). Orchestration architecture must be decided before implementation. |
+| **Files authorized to read** | `.squad/decisions/inbox/copilot-directive-2026-05-05T134319-resolve-webhook.md`, `.squad/decisions/inbox/bishop-workflow-events.md`, `.squad/decisions/inbox/hicks-resolve-webhook-contract.md`, Phase 2 architecture context, Python workflow reference. |
+| **File(s) agent must produce** | Created `src/dotnet/AgenticResolution.Api/Agents/IWorkflowProgressTracker.cs` (contract for progress event emission). Created `src/dotnet/AgenticResolution.Api/Agents/WorkflowProgressTracker.cs` (persist events to WorkflowRunEvent). Created `src/dotnet/AgenticResolution.Api/Agents/ResolutionRunnerService.cs` (background worker dequeues resolve requests, invokes orchestrator with progress tracking). Modified `src/dotnet/AgenticResolution.Api/Agents/AgentOrchestrationService.cs` (added runId/progress parameters, emit events at each stage). Created `src/dotnet/AgenticResolution.Api/Agents/WORKFLOW_SEQUENCE_NAMES.md` (executor sequence and event types for UI). Updated `.squad/decisions/inbox/bishop-workflow-events.md` and `.squad/decisions/inbox/bishop-webhook-run-correlation.md` (contract specifications). |
+| **Outcome** | Completed — progress tracking infrastructure implemented and verified. Build succeeded. ResolutionRunnerService background worker wired. Executor events emit to WorkflowRunEvent. |

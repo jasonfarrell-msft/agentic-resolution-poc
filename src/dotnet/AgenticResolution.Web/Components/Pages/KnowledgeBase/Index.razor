@@ -1,0 +1,183 @@
+@page "/knowledge-base"
+@inject TicketApiClient ApiClient
+
+<PageTitle>Knowledge Base — TicketNow</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Knowledge Base</h1>
+        <p class="text-muted">Find answers, guides, and how-to articles.</p>
+    </div>
+</div>
+
+@if (!ApiClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="card filter-bar">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-12 col-md-6">
+                    <label class="form-label">Search</label>
+                    <input class="form-control" placeholder="Search articles..." @bind="SearchQuery" @bind:after="OnFilterChanged" />
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" @bind="SelectedCategory" @bind:after="OnFilterChanged">
+                        <option value="">All Categories</option>
+                        @foreach (var cat in Categories)
+                        {
+                            <option value="@cat">@cat</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger mt-4">@ErrorMessage</div>
+    }
+    else if (IsLoading)
+    {
+        <div class="ticket-table-wrap mt-4">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="loading-skeleton mb-2"></div>
+            }
+        </div>
+    }
+    else if (Articles is null || Articles.Items.Count == 0)
+    {
+        <div class="empty-state">
+            <h4>No articles found.</h4>
+            <p>Try adjusting your search or category filter.</p>
+        </div>
+    }
+    else
+    {
+        <div class="ticket-table-wrap mt-4">
+            <table class="ticket-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Title</th>
+                        <th>Category</th>
+                        <th>Author</th>
+                        <th>Views</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var article in Articles.Items)
+                    {
+                        <tr class="ticket-row">
+                            <td class="ticket-num"><a href="@($"/knowledge-base/{article.Number}")">@article.Number</a></td>
+                            <td class="ticket-short-desc"><a href="@($"/knowledge-base/{article.Number}")">@article.Title</a></td>
+                            <td>@article.Category</td>
+                            <td>@article.Author</td>
+                            <td>@article.ViewCount</td>
+                            <td>@article.UpdatedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pagination-bar">
+            <button class="btn btn-outline-secondary" disabled="@(!CanGoBack)" @onclick="PreviousPage">Previous</button>
+            <span>Page @Page of @Articles.TotalPages</span>
+            <button class="btn btn-outline-secondary" disabled="@(!CanGoForward)" @onclick="NextPage">Next</button>
+        </div>
+    }
+}
+
+@code {
+    private string? SearchQuery;
+    private string? SelectedCategory;
+    private List<string> Categories = new();
+    private int Page = 1;
+    private int PageSize = 20;
+
+    private PagedResponse<KnowledgeArticleResponse>? Articles;
+    private bool IsLoading = true;
+    private string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!ApiClient.IsConfigured)
+        {
+            IsLoading = false;
+            return;
+        }
+
+        var categoriesTask = LoadCategoriesAsync();
+        var articlesTask = LoadArticlesAsync();
+        await Task.WhenAll(categoriesTask, articlesTask);
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        try
+        {
+            var cats = await ApiClient.GetArticleCategoriesAsync();
+            Categories = cats.ToList();
+        }
+        catch
+        {
+            // Categories are optional; swallow to avoid masking article errors
+        }
+    }
+
+    private async Task LoadArticlesAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            Articles = await ApiClient.GetArticlesAsync(SearchQuery, SelectedCategory, Page, PageSize);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task OnFilterChanged()
+    {
+        Page = 1;
+        await LoadArticlesAsync();
+    }
+
+    private async Task PreviousPage()
+    {
+        if (!CanGoBack) return;
+        Page--;
+        await LoadArticlesAsync();
+    }
+
+    private async Task NextPage()
+    {
+        if (!CanGoForward) return;
+        Page++;
+        await LoadArticlesAsync();
+    }
+
+    private bool CanGoBack => Page > 1;
+    private bool CanGoForward => Articles is not null && Page < Articles.TotalPages;
+}
