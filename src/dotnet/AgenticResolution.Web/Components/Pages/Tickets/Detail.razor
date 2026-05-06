@@ -1,4 +1,5 @@
 @page "/tickets/{Number}"
+@implements IDisposable
 @inject TicketApiClient ApiClient
 @inject NavigationManager Navigation
 
@@ -20,7 +21,13 @@ else if (IsLoading)
 }
 else if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger">@ErrorMessage</div>
+    <div class="alert alert-danger">
+        <strong>Could not load ticket.</strong> @ErrorMessage
+        <div class="mt-2">
+            <button class="btn btn-outline-danger btn-sm" @onclick="RetryLoad">Retry</button>
+            <a class="btn btn-outline-secondary btn-sm ms-2" href="/tickets">Back to Tickets</a>
+        </div>
+    </div>
 }
 else if (Details is null)
 {
@@ -35,6 +42,22 @@ else
         <div>
             <h1>Ticket @Details.Ticket.Number</h1>
             <p class="text-muted">@Details.Ticket.ShortDescription</p>
+            <div class="ticket-header-summary" aria-label="Ticket status summary">
+                <div class="summary-pill">
+                    <span class="summary-label">Status</span>
+                    <span class="summary-value">
+                        <StateBadge State="Details.Ticket.State" />
+                        @if (HasDistinctStatus(Details.Ticket))
+                        {
+                            <span class="summary-secondary">@Details.Ticket.Status</span>
+                        }
+                    </span>
+                </div>
+                <div class="summary-pill">
+                    <span class="summary-label">Assigned To</span>
+                    <span class="summary-value">@GetAssignee(Details.Ticket)</span>
+                </div>
+            </div>
         </div>
         @if (CanResolve)
         {
@@ -48,16 +71,8 @@ else
         <div class="detail-card">
             <h4>Summary</h4>
             <div class="detail-field">
-                <span class="label">State</span>
-                <StateBadge State="Details.Ticket.State" />
-            </div>
-            <div class="detail-field">
                 <span class="label">Priority</span>
                 <PriorityBadge Priority="Details.Ticket.Priority" />
-            </div>
-            <div class="detail-field">
-                <span class="label">Assigned To</span>
-                <span>@(string.IsNullOrWhiteSpace(Details.Ticket.AssignedTo) ? "Unassigned" : Details.Ticket.AssignedTo)</span>
             </div>
             <div class="detail-field">
                 <span class="label">Caller</span>
@@ -151,26 +166,43 @@ else
     private TicketDetailResponse? Details;
     private bool IsLoading = true;
     private string? ErrorMessage;
+    private CancellationTokenSource? _loadCts;
 
-    protected override async Task OnParametersSetAsync()
+    protected override Task OnParametersSetAsync()
     {
-        await LoadDetailsAsync();
+        StartLoadingDetails();
+        return Task.CompletedTask;
     }
 
-    private async Task LoadDetailsAsync()
+    private void StartLoadingDetails()
     {
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+
         IsLoading = true;
+        Details = null;
         ErrorMessage = null;
 
+        _ = LoadDetailsAsync(Number, _loadCts.Token);
+    }
+
+    private async Task LoadDetailsAsync(string number, CancellationToken cancellationToken)
+    {
         if (!ApiClient.IsConfigured)
         {
             IsLoading = false;
+            await InvokeAsync(StateHasChanged);
             return;
         }
 
         try
         {
-            Details = await ApiClient.GetTicketDetailsAsync(Number);
+            Details = await ApiClient.GetTicketDetailsAsync(number, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
         }
         catch (Exception ex)
         {
@@ -178,7 +210,11 @@ else
         }
         finally
         {
-            IsLoading = false;
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                IsLoading = false;
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 
@@ -198,5 +234,32 @@ else
     private void ResolveTicketAsync()
     {
         Navigation.NavigateTo($"/tickets/{Number}/resolve");
+    }
+
+    private void RetryLoad()
+    {
+        StartLoadingDetails();
+    }
+
+    private static string GetAssignee(TicketResponse ticket) =>
+        !string.IsNullOrWhiteSpace(ticket.Assignee)
+            ? ticket.Assignee
+            : string.IsNullOrWhiteSpace(ticket.AssignedTo) ? "Unassigned" : ticket.AssignedTo;
+
+    private static bool HasDistinctStatus(TicketResponse ticket)
+    {
+        if (string.IsNullOrWhiteSpace(ticket.Status))
+        {
+            return false;
+        }
+
+        var state = ticket.State.ToString().Replace("InProgress", "In Progress", StringComparison.Ordinal);
+        return !ticket.Status.Equals(state, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void Dispose()
+    {
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
     }
 }

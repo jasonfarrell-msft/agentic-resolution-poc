@@ -481,4 +481,131 @@ User clicks "Resolve with AI"
 
 ---
 
+### 2026-05-06T193815: User Directive — Instant Navigation with Loading Indicators
+
+**By:** Jason Farrell (via Copilot)  
+**Status:** Implemented
+
+**What:** Page changes in the Blazor UI should happen instantly. If a target page needs to load data, the route should render immediately and show a loading indicator while data is fetched instead of delaying navigation.
+
+**Why:** Improve perceived performance and avoid page-to-page UI delays.
+
+---
+
+### 2026-05-06: Bishop — Resolution API Streaming Fix & Terminal SSE Contract
+
+**By:** Bishop (AI/Agents Specialist)  
+**Status:** Implemented and deployed
+
+## Context
+
+After ca-resolution deployment, clicking Resolve showed the quick-start/loading experience, then hung or crashed instead of completing. Azure verification showed the Python API failed with:
+
+```text
+'Workflow' object has no attribute 'run_stream'
+```
+
+## Decision
+
+The Python API will use the Agent Framework-supported streaming API:
+
+```python
+workflow.run(ticket_input, stream=True)
+```
+
+It will translate Agent Framework executor events into the frontend stage event contract and always emit a deterministic terminal SSE event before ending the response.
+
+## Terminal SSE Contract
+
+`POST /resolve` must always end the SSE stream with exactly one terminal workflow event before closing.
+
+All SSE messages use:
+
+```json
+{
+  "stage": "workflow",
+  "status": "resolved",
+  "event": "resolved",
+  "terminal": true,
+  "timestamp": "2026-05-06T23:43:08.706817Z",
+  "message": "Ticket resolution completed.",
+  "result": {}
+}
+```
+
+Terminal statuses:
+- `resolved` — automation applied a resolution to the ticket
+- `escalated` — automation routed the ticket to a human assignee
+- `completed` — workflow finished cleanly but did not apply resolution or escalation
+- `failed` — workflow raised an exception, emitted a framework failure event, or exceeded the per-run timeout
+
+## Reliability Guardrails
+
+- Workflow errors are caught and converted to terminal `failed` SSE events
+- Runtime is bounded by `RESOLUTION_RUN_TIMEOUT_SECONDS` (default 240 seconds)
+- Timeout failures emit terminal `failed` SSE events
+- Successful resolution emits terminal `resolved`
+- Successful escalation emits terminal `escalated`
+- Clean workflow completion without an action emits terminal `completed`
+
+## Deployment
+
+Deployed to `ca-resolution-tocqjp4pnegfo` as:
+
+```text
+acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:terminal-events-20260506193957
+```
+
+Verified `/health` and `/resolve` against ticket `INC0010102`; the stream ended with terminal `resolved`, and the ticket moved to `Resolved`.
+
+---
+
+### 2026-05-06: Ferro — Instant Navigation Polish
+
+**By:** Ferro (Frontend Developer)  
+**Requested by:** Jason Farrell  
+**Status:** Implemented and deployed
+
+## Decision
+
+Data-fetching Blazor routes should render route chrome immediately, then start API/SSE work in the background and show an explicit loading state until data or events arrive.
+
+## Applied Pattern
+
+- **Ticket detail:** Background load with cancellation on route changes/dispose, skeleton while loading, inline Retry / Back to Tickets on failure
+- **Resolution streaming route:** Starts SSE work after first route render, shows an "opening stream" loading card before first event, keeps terminal detection sticky, navigates back to ticket detail after terminal completion
+- **Ticket list:** Initial load follows the same non-blocking route render pattern with existing skeleton rows and retry on failure
+
+## UX Note
+
+Status and Assigned To belong in compact header summary pills on ticket detail. They should not also be repeated in the body summary unless a future layout explicitly requires it.
+
+---
+
+### 2026-05-06: Ferro — Blazor Resolution Stream Hardening
+
+**By:** Ferro (Frontend Developer)  
+**Status:** Implemented and deployed
+
+## Decision
+
+The Blazor resolution page treats the Python Resolution API as the only streaming contract and does not depend on SignalR or deleted .NET workflow endpoints.
+
+## UI Contract Expectations
+
+- `POST /resolve` returns `text/event-stream`
+- SSE events may use standard `data:` lines with or without a space after the colon; blank lines delimit events
+- SSE `event:` names are treated as status/event hints when the JSON payload omits an explicit terminal field
+- Event JSON may include `stage`, `status`, `state`, `event`, `timestamp`, `result`, `message`, and/or `error`
+- Terminal values include `completed`, `complete`, `done`, `resolved`, `success`, `succeeded`, `escalated`, `failed`, `failure`, `error`, `finished`, `finish`, or a JSON `terminal: true` flag
+
+## UI Outcomes
+
+- Starts streaming without blocking initial render
+- Displays parse/API/stream errors inline
+- Navigates back to ticket details after terminal stream completion
+- Shows inline error if stream ends without terminal state
+
+---
+
 **Earlier decisions archived to `decisions-archive-2026-04-29.md`** (Phase 1 scope, resources, test infrastructure, etc.)

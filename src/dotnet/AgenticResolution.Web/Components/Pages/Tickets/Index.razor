@@ -61,7 +61,12 @@ else
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <div class="alert alert-danger mt-4">@ErrorMessage</div>
+        <div class="alert alert-danger mt-4">
+            <strong>Could not load tickets.</strong> @ErrorMessage
+            <div class="mt-2">
+                <button class="btn btn-outline-danger btn-sm" @onclick="RetryLoad">Retry</button>
+            </div>
+        </div>
     }
     else if (IsLoading)
     {
@@ -133,9 +138,9 @@ else
         TicketState.Cancelled
     ];
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        await LoadTicketsAsync();
+        _ = LoadTicketsAsync();
     }
 
     private async Task LoadTicketsAsync()
@@ -212,6 +217,11 @@ else
         }
 
         Filter.Page++;
+        await LoadTicketsAsync();
+    }
+
+    private async Task RetryLoad()
+    {
         await LoadTicketsAsync();
     }
 

@@ -165,7 +165,9 @@ public sealed record TicketResponse
     public string? Category { get; init; }
     public TicketPriority Priority { get; init; }
     public TicketState State { get; init; }
+    public string? Status { get; init; }
     public string? AssignedTo { get; init; }
+    public string? Assignee { get; init; }
     public string? Caller { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }

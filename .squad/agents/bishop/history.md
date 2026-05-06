@@ -145,6 +145,34 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 ## Learnings
 
+### 2026-05-06: Resolution API terminal SSE fix
+
+**Issue diagnosed:** Deployed `ca-resolution-tocqjp4pnegfo` was calling `workflow.run_stream(...)`, but Agent Framework `Workflow` exposes `run(..., stream=True)` instead. The stream emitted `classifier started`, then failed with `'Workflow' object has no attribute 'run_stream'`, causing the Resolve UI to finish without the expected terminal workflow event.
+
+**Fix shipped:**
+- Replaced `run_stream` usage with Agent Framework streaming events from `workflow.run(ticket_input, stream=True)`.
+- Mapped executor lifecycle events to UI stages: classifier, incident/request fetch, incident/request decomposer, evaluator, resolution, escalation.
+- Added deterministic terminal workflow statuses: `resolved`, `escalated`, `completed`, or `failed`.
+- Wrapped workflow execution in a 240-second timeout via `RESOLUTION_RUN_TIMEOUT_SECONDS`.
+- Converted workflow exceptions and timeout failures into SSE `failed` terminal events instead of crashing the HTTP stream.
+
+**Deployment:**
+- Built via ACR cloud build.
+- Deployed image: `acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:terminal-events-20260506193957`.
+- Active revision verified: `ca-resolution-tocqjp4pnegfo--0000003`.
+
+**Verification:**
+- `GET /health` returned healthy.
+- `POST /resolve` with `INC0010102` streamed through classifier → incident fetch → incident decomposer → evaluator → resolution.
+- Final SSE terminal event: `{"stage":"workflow","status":"resolved","event":"resolved","terminal":true}`.
+- Ticket `INC0010102` updated to `Resolved` with `agentAction=auto_resolved` and confidence `0.82`.
+
+**Decision records:**
+- `.squad/decisions/inbox/bishop-resolution-terminal-events.md`
+- `.squad/decisions/inbox/bishop-resolution-hang-fix.md`
+
+---
+
 ### 2026-05-06: ca-resolution Container App Deployment
 
 **Deployed:** `ca-resolution-tocqjp4pnegfo` to Azure Container Apps (East US 2)

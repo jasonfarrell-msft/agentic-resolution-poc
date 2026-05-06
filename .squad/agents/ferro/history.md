@@ -221,3 +221,17 @@ If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's a
 - ✅ ResolutionApiClient configured with 5-minute timeout for long-running workflows
 - ✅ Ready to call `POST /resolve` on deployed ca-resolution-tocqjp4pnegfo (managed identity, external ingress)
 - ✅ Dynamic stage rendering resilient to Python API schema evolution
+
+### 2026-05-06 — Resolution UI stream hardening
+- Fixed the Blazor resolve page so starting a resolution no longer blocks the render lifecycle; streaming now runs in the background and reports failures inline.
+- Replaced brittle single-line SSE parsing with tolerant `data:` handling, EOF flushing, malformed-event warnings, and terminal-state detection for completed/resolved/escalated/failed-style events.
+- Ticket details now surfaces Status / State and Assignee / Assigned To, with API model support for `status` and `assignee` fields.
+- Production `ResolutionApi:BaseUrl` now points at the Azure Container Apps endpoint; development remains local.
+- Verified with `dotnet build src\dotnet\AgenticResolution.sln --nologo`.
+
+### 2026-05-06 — Instant navigation + ticket detail polish
+- Ticket detail now renders immediately with a skeleton while data loads, reports load failures inline, and offers Retry / Back to Tickets actions instead of leaving a blank page.
+- Status and Assigned To moved into compact header summary pills so the values are easier to scan and no longer repeat inside the summary section.
+- Resolution streaming route keeps rendering immediately, shows a clear stream-start loading card until SSE events arrive, preserves terminal-state handling, and redirects back to ticket detail after terminal completion.
+- Ticket list initial load now starts in the background with existing skeleton rows and a retry affordance on failure.
+- Verified with `dotnet build src\dotnet\AgenticResolution.sln --nologo`.

@@ -1,0 +1,11 @@
+fix: complete resolution stream and polish ticket UI
+
+- Fixed Python Resolution API streaming to emit terminal SSE events
+- Redeployed ca-resolution and verified resolve completes with terminal resolved event
+- Hardened Blazor SSE client against stream errors and variant event shapes
+- Added production ResolutionApi BaseUrl
+- Improved Ticket Details Status/Assigned To visual treatment
+- Added instant page rendering with loading/error states
+- Build passes
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

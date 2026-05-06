@@ -23,9 +23,13 @@ else
             <h1>Resolving Ticket @Number</h1>
             <p class="text-muted">AI-powered resolution in progress</p>
         </div>
-        @if (IsComplete)
+        @if (HasTerminalState && !HasError)
         {
             <span class="badge bg-success">Complete</span>
+        }
+        else if (HasTerminalState)
+        {
+            <span class="badge bg-warning text-dark">Finished</span>
         }
         else if (HasError)
         {
@@ -37,49 +41,61 @@ else
         }
     </div>
 
-    <div class="timeline">
-        @foreach (var stage in Stages)
-        {
-            <div class="timeline-step">
-                <div class="step-indicator @GetIndicatorClass(stage.Value)"></div>
-                <div>
-                    <div class="step-title">@FormatStageName(stage.Key)</div>
-                    <div class="step-meta">
-                        <span>@stage.Value.Status</span>
-                        @if (stage.Value.Timestamp is not null)
+    @if (!HasError && !HasTerminalState && Stages.Count == 0)
+    {
+        <div class="resolution-loading-card" role="status" aria-live="polite">
+            <div class="spinner-border text-primary" aria-hidden="true"></div>
+            <div>
+                <strong>@(IsStarted ? "Opening resolution stream…" : "Preparing resolution…")</strong>
+                <p class="mb-0 text-muted">This page is ready; progress events will appear as soon as the agent workflow responds.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="timeline">
+            @foreach (var stage in Stages)
+            {
+                <div class="timeline-step">
+                    <div class="step-indicator @GetIndicatorClass(stage.Value)"></div>
+                    <div>
+                        <div class="step-title">@FormatStageName(stage.Key)</div>
+                        <div class="step-meta">
+                            <span>@stage.Value.Status</span>
+                            @if (stage.Value.Timestamp is not null)
+                            {
+                                <span>@stage.Value.Timestamp</span>
+                            }
+                        </div>
+                        @if (stage.Value.ResultSummary is not null)
                         {
-                            <span>@stage.Value.Timestamp</span>
+                            <div class="step-payload">@stage.Value.ResultSummary</div>
                         }
                     </div>
-                    @if (stage.Value.ResultSummary is not null)
-                    {
-                        <div class="step-payload">@stage.Value.ResultSummary</div>
-                    }
                 </div>
-            </div>
-        }
-    </div>
+            }
+        </div>
+    }
 
     @if (HasError)
     {
-        <div class="alert alert-danger mt-3">
-            <strong>Resolution failed:</strong> @ErrorMessage
+        <div class="alert @(HasTerminalState ? "alert-warning" : "alert-danger") mt-3">
+            <strong>@(HasTerminalState ? "Resolution finished with errors:" : "Resolution failed:")</strong> @ErrorMessage
             <div class="mt-2">
-                <button class="btn btn-outline-danger btn-sm" @onclick="RetryAsync">Retry</button>
+                @if (!HasTerminalState)
+                {
+                    <button class="btn btn-outline-danger btn-sm" @onclick="RetryAsync">Retry</button>
+                }
                 <a class="btn btn-outline-secondary btn-sm ms-2" href="@($"/tickets/{Number}")">Back to Ticket</a>
             </div>
         </div>
     }
-    else if (IsComplete)
+    else if (HasTerminalState)
     {
         <div class="final-card mt-3">
             <h4>Resolution Complete</h4>
             <p>Redirecting to ticket detail…</p>
         </div>
-    }
-    else if (!IsStarted)
-    {
-        <div class="loading-skeleton"></div>
     }
 }
 
@@ -89,22 +105,29 @@ else
 
     private Dictionary<string, StageState> Stages { get; } = new();
     private bool IsStarted;
-    private bool IsComplete;
+    private bool HasTerminalState;
     private bool HasError;
     private string? ErrorMessage;
     private CancellationTokenSource? _cts;
 
-    protected override async Task OnParametersSetAsync()
+    protected override Task OnParametersSetAsync()
+    {
+        StartResolution();
+        return Task.CompletedTask;
+    }
+
+    private void StartResolution()
     {
         _cts?.Cancel();
+        _cts?.Dispose();
         _cts = new CancellationTokenSource();
         Stages.Clear();
-        IsComplete = false;
+        HasTerminalState = false;
         HasError = false;
         ErrorMessage = null;
         IsStarted = false;
 
-        await StreamResolutionAsync(_cts.Token);
+        _ = StreamResolutionAsync(_cts.Token);
     }
 
     private async Task StreamResolutionAsync(CancellationToken cancellationToken)
@@ -115,6 +138,7 @@ else
         }
 
         IsStarted = true;
+        await InvokeAsync(StateHasChanged);
 
         try
         {
@@ -124,15 +148,17 @@ else
                 await InvokeAsync(StateHasChanged);
             }
 
-            // Stream ended — mark complete if last stage was completed
-            if (!HasError)
+            if (HasTerminalState)
             {
-                IsComplete = true;
                 await InvokeAsync(StateHasChanged);
-
-                // Navigate back to ticket detail after brief delay
                 await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
                 await InvokeAsync(() => Navigation.NavigateTo($"/tickets/{Number}"));
+            }
+            else if (!HasError)
+            {
+                HasError = true;
+                ErrorMessage = "The resolution stream ended before the workflow reported a terminal status.";
+                await InvokeAsync(StateHasChanged);
             }
         }
         catch (OperationCanceledException)
@@ -151,28 +177,23 @@ else
     {
         var summary = evt.Result.HasValue
             ? TruncateJson(evt.Result.Value)
-            : evt.Error;
+            : evt.DisplayMessage;
 
-        Stages[evt.Stage] = new StageState(evt.Status, evt.Timestamp, summary);
+        Stages[evt.DisplayStage] = new StageState(evt.EffectiveStatus, evt.Timestamp, summary);
+        HasTerminalState |= evt.IsTerminal;
 
-        if (evt.Status.Equals("error", StringComparison.OrdinalIgnoreCase) ||
-            evt.Status.Equals("failed", StringComparison.OrdinalIgnoreCase))
+        if (evt.IsFailure)
         {
             HasError = true;
-            ErrorMessage = evt.Error ?? $"Stage '{evt.Stage}' failed.";
+            ErrorMessage = evt.DisplayMessage ?? $"Stage '{evt.DisplayStage}' failed.";
         }
     }
 
-    private async Task RetryAsync()
+    private Task RetryAsync()
     {
-        _cts?.Cancel();
-        _cts = new CancellationTokenSource();
-        Stages.Clear();
-        IsComplete = false;
-        HasError = false;
-        ErrorMessage = null;
+        StartResolution();
         StateHasChanged();
-        await StreamResolutionAsync(_cts.Token);
+        return Task.CompletedTask;
     }
 
     private static string FormatStageName(string stage) => stage switch
@@ -191,8 +212,8 @@ else
     private static string GetIndicatorClass(StageState state) => state.Status.ToLowerInvariant() switch
     {
         "started" => "step-running",
-        "completed" => "step-completed",
-        "error" or "failed" => "step-failed",
+        "completed" or "complete" or "resolved" or "succeeded" or "success" or "done" or "escalated" => "step-completed",
+        "error" or "failed" or "failure" => "step-failed",
         _ => "step-pending"
     };
 

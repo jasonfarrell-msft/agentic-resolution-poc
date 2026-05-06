@@ -8,14 +8,14 @@ sys.path.insert(0, str(python_root))
 
 import asyncio
 import json
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from agent_framework import WorkflowContext
 from shared.messages import TicketInput
 from workflow import workflow
 
@@ -84,14 +84,23 @@ async def workflow_event_stream(ticket_number: str) -> AsyncGenerator[str, None]
     - evaluator
     - resolution / escalation
     """
-    
+    run_timeout_seconds = int(os.environ.get("RESOLUTION_RUN_TIMEOUT_SECONDS", "240"))
+
     class EventCapture:
         """Captures workflow events by monitoring context state."""
         def __init__(self):
-            self.current_stage = None
             self.events = []
+            self.terminal_emitted = False
             
-        async def emit(self, stage: str, status: str, result: dict = None):
+        async def emit(
+            self,
+            stage: str,
+            status: str,
+            result: dict | None = None,
+            message: str | None = None,
+            error: str | None = None,
+            terminal: bool = False,
+        ):
             event_data = {
                 "stage": stage,
                 "status": status,
@@ -99,115 +108,139 @@ async def workflow_event_stream(ticket_number: str) -> AsyncGenerator[str, None]
             }
             if result is not None:
                 event_data["result"] = result
-            
+            if message is not None:
+                event_data["message"] = message
+            if error is not None:
+                event_data["error"] = error
+            if terminal:
+                event_data["event"] = status
+                event_data["terminal"] = True
+                self.terminal_emitted = True
+             
             self.events.append(event_data)
             return f"data: {json.dumps(event_data)}\n\n"
-    
+
+    def to_jsonable(value: Any) -> Any:
+        if is_dataclass(value):
+            return asdict(value)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, list):
+            return [to_jsonable(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): to_jsonable(item) for key, item in value.items()}
+        return str(value)
+
+    def stage_for_executor(executor_id: str | None) -> str:
+        return {
+            "ClassifierExecutor": "classifier",
+            "IncidentFetchExecutor": "incident_fetch",
+            "RequestFetchExecutor": "request_fetch",
+            "IncidentDecomposerExecutor": "incident_decomposer",
+            "RequestDecomposerExecutor": "request_decomposer",
+            "EvaluatorExecutor": "evaluator",
+            "ResolutionExecutor": "resolution",
+            "EscalationExecutor": "escalation",
+        }.get(executor_id or "", "workflow")
+
+    def summarize_executor_result(executor_id: str | None, data: Any) -> dict:
+        outputs = data if isinstance(data, list) else [data]
+        json_outputs = [to_jsonable(item) for item in outputs]
+        primary = next((item for item in outputs if item is not None), None)
+        primary_json = to_jsonable(primary)
+
+        if executor_id == "ClassifierExecutor":
+            route_type = type(primary).__name__
+            return {
+                "type": "incident" if route_type == "IncidentRoute" else "request",
+                "output": primary_json,
+            }
+        if executor_id in ("IncidentFetchExecutor", "RequestFetchExecutor"):
+            return primary_json if isinstance(primary_json, dict) else {"output": primary_json}
+        if executor_id in ("IncidentDecomposerExecutor", "RequestDecomposerExecutor"):
+            if isinstance(primary_json, dict):
+                return {
+                    "core_problem": primary_json.get("core_problem"),
+                    "questions_count": len(primary_json.get("questions") or []),
+                    "preliminary_confidence": primary_json.get("preliminary_confidence"),
+                }
+            return {"output": primary_json}
+        if executor_id == "EvaluatorExecutor":
+            if isinstance(primary_json, dict):
+                return {
+                    "confidence": primary_json.get("confidence"),
+                    "kb_source": primary_json.get("kb_source"),
+                }
+            return {"output": primary_json}
+        if executor_id in ("ResolutionExecutor", "EscalationExecutor"):
+            text = " ".join(str(item) for item in outputs if item is not None)
+            return {"output": text[:500]}
+
+        return {"outputs": json_outputs}
+     
     capture = EventCapture()
-    
+     
     try:
-        # Emit classifier started
-        yield await capture.emit("classifier", "started")
-        
-        # Create workflow context and execute
         ticket_input = TicketInput(ticket_number=ticket_number)
-        
-        # Track workflow execution through message types
-        class WorkflowMonitor:
-            def __init__(self):
-                self.stage = "classifier"
-                self.ticket_type = None
-                
-        monitor = WorkflowMonitor()
-        
-        # Execute workflow and capture outputs
-        outputs = []
-        async for output in workflow.run_stream(ticket_input):
-            # Track stage transitions based on output type
-            output_type = type(output).__name__
-            
-            if output_type == "IncidentRoute":
-                yield await capture.emit("classifier", "completed", {"type": "incident", "ticket_number": output.ticket_number})
-                monitor.ticket_type = "incident"
-                monitor.stage = "incident_fetch"
-                yield await capture.emit("incident_fetch", "started")
-                
-            elif output_type == "RequestRoute":
-                yield await capture.emit("classifier", "completed", {"type": "request", "ticket_number": output.ticket_number})
-                monitor.ticket_type = "request"
-                monitor.stage = "request_fetch"
-                yield await capture.emit("request_fetch", "started")
-                
-            elif output_type == "TicketDetails":
-                if monitor.ticket_type == "incident":
-                    yield await capture.emit("incident_fetch", "completed", {
-                        "ticket_id": output.ticket_id,
-                        "category": output.ticket_category,
-                        "priority": output.ticket_priority
-                    })
-                    monitor.stage = "incident_decomposer"
-                    yield await capture.emit("incident_decomposer", "started")
-                else:
-                    yield await capture.emit("request_fetch", "completed", {
-                        "ticket_id": output.ticket_id,
-                        "category": output.ticket_category,
-                        "priority": output.ticket_priority
-                    })
-                    monitor.stage = "request_decomposer"
-                    yield await capture.emit("request_decomposer", "started")
-                    
-            elif output_type == "ResolutionAnalysis":
-                if monitor.ticket_type == "incident":
-                    yield await capture.emit("incident_decomposer", "completed", {
-                        "core_problem": output.core_problem,
-                        "questions_count": len(output.questions),
-                        "preliminary_confidence": output.preliminary_confidence
-                    })
-                else:
-                    yield await capture.emit("request_decomposer", "completed", {
-                        "core_problem": output.core_problem,
-                        "questions_count": len(output.questions),
-                        "preliminary_confidence": output.preliminary_confidence
-                    })
-                monitor.stage = "evaluator"
-                yield await capture.emit("evaluator", "started")
-                
-            elif output_type == "ResolutionProposal":
-                yield await capture.emit("evaluator", "completed", {
-                    "confidence": output.confidence,
-                    "kb_source": output.kb_source
-                })
-                
-                # Determine next stage based on confidence
-                from workflow import CONFIDENCE_THRESHOLD
-                if output.confidence >= CONFIDENCE_THRESHOLD:
-                    monitor.stage = "resolution"
-                    yield await capture.emit("resolution", "started")
-                else:
-                    monitor.stage = "escalation"
-                    yield await capture.emit("escalation", "started")
-                    
-            elif isinstance(output, str):
-                # Final output from resolution or escalation agent
-                if monitor.stage == "resolution":
-                    yield await capture.emit("resolution", "completed", {"output": output[:200]})
-                elif monitor.stage == "escalation":
-                    yield await capture.emit("escalation", "completed", {"output": output[:200]})
-                outputs.append(output)
-        
-        # If we got here, workflow completed successfully
-        if not outputs:
-            # No final output received, emit generic completion
-            yield await capture.emit(monitor.stage, "completed")
-            
+        stream = workflow.run(ticket_input, stream=True)
+
+        async with asyncio.timeout(run_timeout_seconds):
+            async for event in stream:
+                event_type = getattr(event, "type", None)
+                executor_id = getattr(event, "executor_id", None)
+                stage = stage_for_executor(executor_id)
+
+                if event_type == "executor_invoked":
+                    yield await capture.emit(stage, "started")
+                elif event_type == "executor_completed":
+                    result = summarize_executor_result(executor_id, getattr(event, "data", None))
+                    yield await capture.emit(stage, "completed", result)
+
+                    if executor_id == "ResolutionExecutor":
+                        yield await capture.emit(
+                            "workflow",
+                            "resolved",
+                            result,
+                            message="Ticket resolution completed.",
+                            terminal=True,
+                        )
+                    elif executor_id == "EscalationExecutor":
+                        yield await capture.emit(
+                            "workflow",
+                            "escalated",
+                            result,
+                            message="Ticket was escalated to a human assignee.",
+                            terminal=True,
+                        )
+                elif event_type in ("executor_failed", "failed", "error"):
+                    detail = to_jsonable(getattr(event, "details", None) or getattr(event, "data", None))
+                    yield await capture.emit(
+                        stage,
+                        "failed",
+                        {"details": detail},
+                        error=str(detail),
+                        terminal=True,
+                    )
+                    return
+
+            await stream.get_final_response()
+
+        if not capture.terminal_emitted:
+            yield await capture.emit(
+                "workflow",
+                "completed",
+                message="Workflow completed without a resolution or escalation action.",
+                terminal=True,
+            )
+    except TimeoutError:
+        yield await capture.emit(
+            "workflow",
+            "failed",
+            error=f"Resolution workflow exceeded {run_timeout_seconds} seconds.",
+            terminal=True,
+        )
     except Exception as e:
-        error_event = {
-            "stage": "error",
-            "status": "failed",
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        yield f"data: {json.dumps(error_event)}\n\n"
+        yield await capture.emit("workflow", "failed", error=str(e), terminal=True)
 
 
 @app.post("/resolve")
