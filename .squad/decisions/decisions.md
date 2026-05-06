@@ -486,6 +486,257 @@ Confidence gate (≥0.80)
 
 ---
 
+## Phase 2.5: Blazor Frontend & Manual Resolution Flow
+
+### Architecture: Blazor Frontend + Manual Resolve + Workflow Visibility
+**Date:** 2026-05-06  
+**Author:** Apone (Lead/Architect)  
+**Status:** ✅ In progress (Web project created, API contracts extended)  
+**Scope:** Phase 2.5 — Blazor UI rebuild + decoupling agent pipeline from webhook dispatch + workflow progress visibility
+
+#### Decision
+Add new **`AgenticResolution.Web`** project (Blazor Server, .NET 10, Interactive Server render mode):
+- Separate from API — independent deployment to App Service
+- Typed `TicketsApiClient` with HttpClientFactory
+- Pages: `/tickets`, `/tickets/{number}`, `/tickets/{number}/runs/{runId}`
+- Shared DTO contracts library: `AgenticResolution.Contracts`
+
+**API Contract Extensions (by Hicks):**
+1. **Enhanced list filtering** — `assignedTo`, `state`, `category`, `priority`, `q`, `sort`, `dir`, pagination
+2. **Detail endpoint** — `GET /api/tickets/{number}/details` with comments + runs
+3. **Comments** — `GET/POST /api/tickets/{number}/comments`
+4. **Manual resolve** — `POST /api/tickets/{number}/resolve` → 202 Accepted with `runId`
+5. **Workflow runs** — `GET /api/tickets/{number}/runs`, `GET /api/runs/{runId}`, `GET /api/runs/{runId}/events`
+6. **Webhook flag** — `Webhook:AutoDispatchOnTicketWrite` (default false) — opt-in auto-dispatch
+
+**Database changes:**
+- `TicketComment` — author, body, isInternal, createdAt
+- `WorkflowRun` — status (Pending/Running/Completed/Escalated/Failed), triggeredBy, note, startedAt, completedAt, finalAction, finalConfidence
+- `WorkflowRunEvent` — runId, sequence, executorId, eventType, payload, timestamp
+- Indexes on UpdatedAt, AssignedTo, Category
+
+#### Rationale
+- Clear separation: .NET API owns CRUD, Python API owns orchestration
+- Blazor Server simplifies auth and SignalR (no CORS needed)
+- Manual resolution is explicit — no auto-dispatch surprises
+- Async non-blocking flow allows UI responsiveness
+
+---
+
+### Python Resolution API: FastAPI + SSE Streaming
+**Date:** 2026-05-06  
+**Author:** Bishop (AI/Agents Specialist)  
+**Status:** ✅ Implemented  
+**Location:** `src/python/resolution_api/`
+
+#### Decision
+Created production-ready Python Resolution API that wraps existing agent workflow with FastAPI + Server-Sent Events (SSE).
+
+**Endpoint:** `POST /resolve`  
+**Request:** `{ "ticket_number": "INC0010101" }`  
+**Response:** Server-Sent Events stream (text/event-stream) with workflow progression
+
+**Event format (JSON):**
+```json
+{"stage": "classifier", "status": "started", "timestamp": "2026-05-06T12:34:56Z"}
+{"stage": "classifier", "status": "completed", "result": {"type": "incident", "ticket_number": "INC0010101"}}
+{"stage": "incident_fetch", "status": "started"}
+{"stage": "incident_fetch", "status": "completed", "result": {...}}
+{"stage": "incident_decomposer", "status": "started"}
+{"stage": "incident_decomposer", "status": "completed", "result": {...}}
+{"stage": "evaluator", "status": "started"}
+{"stage": "evaluator", "status": "completed", "result": {"confidence": 0.85, "kb_source": "..."}}
+{"stage": "resolution", "status": "started"}
+{"stage": "resolution", "status": "completed", "result": {"output": "..."}}
+```
+
+**Health checks:**
+- `GET /health` — Azure Container Apps probe
+- `GET /` — Root health check
+
+**Architecture:**
+- Thin wrapper — NO duplication of agent logic
+- Imports existing `workflow`, `agents`, `shared` modules
+- Orchestrates via `workflow.run_stream()`
+- Maps workflow message types to SSE events
+- Stateless design (no WorkflowRun persistence in Python layer)
+
+**Deployment:**
+- Docker image: multi-stage build
+- Azure Container Apps: `ca-resolution`
+- Environment: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_MODEL, MCP_SERVER_URL, PORT=8000
+- DefaultAzureCredential for managed identity auth
+
+#### Rationale
+- **Direct Blazor → Python API (not proxied through .NET):** Removes unnecessary hop, enables SSE streaming directly
+- **SSE (not WebSockets):** One-way stream (fire-and-forget), HTTP/1.1 native, simpler client
+- **Stateless:** Thin wrapper — persistence is .NET's concern, Python focuses on orchestration
+
+---
+
+### Architecture Pivot: Webhook-Driven vs. In-Process Orchestration
+**Date:** 2026-05-05  
+**Author:** Hicks (Backend Dev)  
+**Status:** ✅ Implemented  
+**Context:** User clarification on Phase 2.5 manual resolve flow
+
+#### Decision
+**Resolve endpoint fires webhook → external receiver (Azure Function) processes orchestration.**
+
+NOT in-process resolution queue.
+
+**Resolve Endpoint Flow:**
+1. Look up ticket
+2. Check for existing Pending/Running run — if found, return 200 with existing (idempotent)
+3. Create WorkflowRun (Pending)
+4. Enqueue webhook `resolution.started` unconditionally
+5. Return 202 Accepted
+
+**Webhook Payload Extension:**
+```json
+{
+  "event_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "event_type": "resolution.started",
+  "timestamp": "2026-05-05T18:30:00Z",
+  "ticket": { /* snapshot */ },
+  "run_id": "8c7a3d91-4e2f-4d89-9b1a-5f0c8e9d7a2b"
+}
+```
+
+**Webhook Event Types (with RunId correlation):**
+| Event Type | Trigger | RunId | Config Flag |
+|---|---|---|---|
+| `ticket.created` | POST /tickets | ❌ | Webhook:AutoDispatchOnTicketWrite |
+| `ticket.updated` | PUT /tickets/{id} | ❌ | Webhook:AutoDispatchOnTicketWrite |
+| `resolution.started` | POST /resolve | ✅ | (unconditional) |
+| `workflow.running` | Pending→Running | ✅ | Webhook:FireOnWorkflowProgress |
+| `workflow.completed` | Run completes | ✅ | Webhook:FireOnWorkflowProgress |
+| `workflow.escalated` | Run escalates | ✅ | Webhook:FireOnWorkflowProgress |
+| `workflow.failed` | Run fails | ✅ | Webhook:FireOnWorkflowProgress |
+
+**Configuration:**
+```json
+{
+  "Webhook": {
+    "TargetUrl": "https://external-system.example.com/webhooks",
+    "Secret": "...",
+    "AutoDispatchOnTicketWrite": false,
+    "FireOnResolutionStart": true,
+    "FireOnWorkflowProgress": true
+  }
+}
+```
+
+**Rationale:**
+- Separation of concerns: API persists, Function orchestrates
+- Scalability: Function scales independently on Consumption plan
+- Retry semantics: built-in webhook retry with backoff
+- Integration future: same plumbing supports ServiceNow sync
+
+#### Verification
+- Create/Update webhook behavior preserved (gated by config flag)
+- Resolve endpoint fires webhook unconditionally
+- Idempotent re-trigger prevents duplicate webhooks
+- MCP server unchanged (calls GET/PUT ticket endpoints)
+- Build: 0 errors
+
+---
+
+### Frontend Resolve Button Flow & Progress Listening
+**Date:** 2026-05-05  
+**Author:** Ferro (Frontend Developer)  
+**Status:** Specified — awaiting implementation  
+**Related:** Apone's Blazor architecture, Hicks' resolve webhook contract
+
+#### Decision
+**Clicking "Resolve with AI" must be non-blocking and event-driven:**
+
+1. **Trigger resolve** — `POST /api/tickets/{number}/resolve` → returns 202 with `runId`
+2. **Navigate** — Go to progress page `/tickets/{number}/runs/{runId}` immediately
+3. **Listen** — Connect to SignalR hub `/hubs/runs`, join group `run-{runId}` (or fallback to polling `GET /api/runs/{runId}/events`)
+4. **Display** — Render executor lanes with real-time progress (classifier → decomposer → evaluator → resolution/escalation)
+5. **Stop** — When run reaches terminal state (Completed/Escalated/Failed), disconnect
+
+**UI Structure (example):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Ticket INC0010042 — Resolution Run                         │
+│  Status: [Running] ●                                         │
+├─────────────────────────────────────────────────────────────┤
+│  Timeline:                                                   │
+│                                                              │
+│  ✓ ClassifierExecutor                    17:43:20           │
+│    → Classification: Incident (95%)                          │
+│                                                              │
+│  ⏳ IncidentDecomposerExecutor            17:43:23           │
+│    → Generating diagnostic questions...                      │
+│                                                              │
+│  ⏱ EvaluatorExecutor                      (pending)          │
+│                                                              │
+│  ⏱ ResolutionSummarizerExecutor           (pending)          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Visual states:**
+- ✓ green checkmark = completed
+- ⏳ spinner = running
+- ⏱ gray clock = pending
+- ❌ red X = failed
+
+#### Rationale
+- Non-blocking HTTP (202 Accepted)
+- Async orchestration in Function
+- Rich real-time UI feedback
+- Idempotent re-trigger safety
+
+---
+
+### .NET API Cleanup: Architecture Pivot
+**Date:** 2026-05-06  
+**Author:** Hicks (Backend Dev)  
+**Status:** ✅ Implemented  
+**Context:** Architecture pivot — resolution orchestration moved to Python
+
+#### Decision
+**Remove dead orchestration code from .NET API. Focus on CRUD simulation only.**
+
+**Deletions:**
+- `AgentOrchestrationService` (scoped service)
+- `IWorkflowProgressTracker` / `WorkflowProgressTracker` (scoped)
+- `IResolutionQueue` / `ResolutionQueue` (singleton)
+- `ResolutionRunnerService` (hosted service)
+- Entire `src/dotnet/AgenticResolution.Api/Agents/` folder
+  - AgentOrchestrationService.cs
+  - ResolutionRunnerService.cs
+  - IWorkflowProgressTracker.cs / WorkflowProgressTracker.cs
+  - AgentDefinitions.cs
+  - FoundryAgentService.cs
+  - WORKFLOW_SEQUENCE_NAMES.md
+
+**Endpoints removed:**
+- `POST /api/tickets/{number}/resolve`
+- `GET /api/tickets/{number}/runs`
+- `GET /api/runs/{runId}`
+- `GET /api/runs/{runId}/events`
+
+**Preserved (Per Instructions):**
+- `Models/WorkflowRun.cs`, `Models/WorkflowRunEvent.cs` — database models untouched (Python may use them for audit)
+- All CRUD endpoints (tickets, knowledge base)
+- MCP server (unchanged, still calls GET/PUT endpoints)
+- Webhook dispatch mechanism (plumbing preserved for future integration)
+
+**Rationale:**
+- Python Resolution API now owns orchestration end-to-end
+- Separation of concerns: .NET owns CRUD, Python owns workflow
+- Cleaner codebase (no orphaned services)
+- Database models preserved in case Python needs audit trail
+
+**Verification:**
+- Build: 0 errors, 2 warnings (NU1510 — non-blocking)
+- All CRUD endpoints intact for ServiceNow simulation
+
+---
+
 ## Leadership Directives
 
 ### Directive 1: Use Azure AI Foundry, Not Standalone OpenAI
@@ -525,8 +776,13 @@ Confidence gate (≥0.80)
 | Question-Driven Resolution Pipeline | Bishop | ✅ Committed to main | 2026-05-04 |
 | MCP Server | Hicks | ✅ Scaffolded | 2026-04-30 |
 | Phase 2 Bicep IaC | Hicks | ✅ Complete | 2026-04-29 |
+| Python Resolution API (Phase 2.5) | Bishop | ✅ Implemented | 2026-05-06 |
+| Blazor Web Project (Phase 2.5) | Ferro | ✅ Created | 2026-05-05 |
+| API Contract Extensions (Phase 2.5) | Hicks | ✅ Implemented | 2026-05-06 |
+| .NET Orchestration Cleanup (Phase 2.5) | Hicks | ✅ Completed | 2026-05-06 |
+| Azure IaC Baseline (Phase 2.5) | Hicks | ✅ Completed | 2026-05-05 |
 
 ---
 
-**Last consolidated:** 2026-05-04T16:16:14Z  
-**Next review:** Post-deployment validation of hosted agents
+**Last consolidated:** 2026-05-06T170700Z  
+**Next review:** Post-deployment validation of Python Resolution API and Blazor UI

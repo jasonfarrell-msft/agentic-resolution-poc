@@ -133,3 +133,115 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 - Foundry Agent wiring & hosted agents migration (2026-04-30)
 - Question-driven resolution pipeline design (2026-05-04)
 - DecomposerAgent split into IncidentDecomposer + RequestDecomposer (2026-05-04 decision)
+
+---
+
+## Learnings
+
+### 2026-05-06: Python Resolution API — FastAPI wrapper for agent workflow
+
+**Requested by:** Jason Farrell  
+**Scope:** Create production-ready Python API service (`ca-resolution`) for Azure Container Apps deployment
+
+**Context:** Architecture pivot establishes direct Blazor → Python Resolution API → MCP → TicketsNow data flow. The .NET API remains separate for ticket CRUD. Blazor calls Python Resolution API directly for workflow orchestration with SSE event streaming for demo visualization.
+
+**Tasks completed:**
+1. ✅ Created `src/python/resolution_api/` directory structure
+2. ✅ Created `main.py` — FastAPI application with POST /resolve endpoint and SSE streaming
+3. ✅ Created `requirements.txt` — FastAPI, uvicorn, pydantic, + agent-framework dependencies
+4. ✅ Created `Dockerfile` — Multi-stage build for Azure Container Apps deployment
+5. ✅ Created `README.md` — Complete API documentation with local dev and deployment guide
+6. ✅ Updated `.env.template` with PORT configuration
+7. ✅ Verified imports work correctly
+
+**Implementation details:**
+
+**API Endpoints:**
+- `POST /resolve` — Accepts `{ "ticket_number": "INC0010101" }`, returns SSE stream with workflow events
+- `GET /health` — Health check for Azure Container Apps probes
+- `GET /` — Root health endpoint
+
+**SSE Event Format:**
+```json
+{"stage": "classifier", "status": "started", "timestamp": "2026-05-06T12:34:56Z"}
+{"stage": "classifier", "status": "completed", "result": {"type": "incident"}}
+{"stage": "incident_fetch", "status": "started"}
+{"stage": "incident_fetch", "status": "completed", "result": {...}}
+{"stage": "incident_decomposer", "status": "started"}
+{"stage": "incident_decomposer", "status": "completed", "result": {...}}
+{"stage": "evaluator", "status": "started"}
+{"stage": "evaluator", "status": "completed", "result": {"confidence": 0.85}}
+{"stage": "resolution", "status": "started"}
+{"stage": "resolution", "status": "completed", "result": {"output": "..."}}
+```
+
+**Workflow Stage Tracking:**
+- Monitors `workflow.run_stream()` outputs by message type (`IncidentRoute`, `RequestRoute`, `TicketDetails`, `ResolutionAnalysis`, `ResolutionProposal`, final string output)
+- Maps message transitions to SSE events (started/completed for each stage)
+- Handles incident vs request branching (incident_fetch vs request_fetch, incident_decomposer vs request_decomposer)
+- Routes to resolution or escalation based on confidence threshold (0.80)
+
+**Design principles:**
+1. **Thin wrapper** — NO duplication of agent logic; imports existing `workflow`, `agents`, `shared` modules
+2. **SSE streaming** — Real-time event emission for Blazor UI visualization
+3. **Stateless** — No WorkflowRun persistence; run tracking happens in .NET layer if needed
+4. **Azure-ready** — Dockerfile with health checks, PORT env var support, DefaultAzureCredential
+5. **Environment parity** — Uses same Azure OpenAI endpoint/model as devui_serve.py
+
+**File paths:**
+- `src/python/resolution_api/main.py` — FastAPI application
+- `src/python/resolution_api/requirements.txt` — Python dependencies
+- `src/python/resolution_api/Dockerfile` — Container build instructions
+- `src/python/resolution_api/README.md` — Complete API documentation
+- `src/python/.env.template` — Environment configuration template (updated with PORT)
+
+**Integration surface:**
+- **Blazor UI:** Calls POST /resolve, consumes SSE stream for progress visualization
+- **MCP Server:** Agents invoke MCP tools for ticket CRUD operations
+- **TicketsNow API:** MCP server proxies REST calls to .NET API
+- **Azure OpenAI:** Agents use gpt-4o-mini via DefaultAzureCredential
+
+**Deployment path:**
+```bash
+# Build
+docker build -f src/python/resolution_api/Dockerfile -t acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:latest .
+
+# Push
+az acr login --name acragressrcdevtocqjp4pnegfo
+docker push acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:latest
+
+# Deploy to ca-resolution
+az containerapp update \
+  --name ca-resolution \
+  --resource-group rg-agentic-res-src-dev \
+  --image acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:latest
+```
+
+**Known limitations:**
+1. No request cancellation — workflow runs to completion even if client disconnects
+2. No run persistence — events are streamed but not stored (unlike .NET WorkflowRun table)
+3. Single-tenant — no per-request isolation (add scoping for production multi-tenancy)
+
+**Verification:**
+- ✅ Import test passed: `python -c "from resolution_api.main import app"`
+- ✅ File structure matches Azure Container Apps requirements
+- ✅ Dockerfile includes health check and proper CMD for uvicorn
+
+**Next steps:**
+- Deploy to Azure Container Apps as `ca-resolution`
+- Configure Blazor UI to call Python API directly (remove .NET API dependency for resolution)
+- Add MCP_SERVER_URL to container environment for agent tool access
+- (Future) Add authentication (Azure AD), metrics (Prometheus), structured logging (App Insights)
+
+**Decision logged:** `.squad/decisions/inbox/bishop-resolution-api.md`
+
+---
+
+## Historical Summary
+
+See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 through 2026-05-04):
+- Phase 2 kickoff & search index schema finalization (2026-04-29)
+- Phase 1 scaffold complete (2026-04-29)
+- Foundry Agent wiring & hosted agents migration (2026-04-30)
+- Question-driven resolution pipeline design (2026-05-04)
+- DecomposerAgent split into IncidentDecomposer + RequestDecomposer (2026-05-04 decision)

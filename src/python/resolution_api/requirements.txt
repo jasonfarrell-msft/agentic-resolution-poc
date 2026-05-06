@@ -1,0 +1,13 @@
+# Resolution API dependencies
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.0
+
+# Agent Framework (from parent requirements.txt)
+agent-framework==1.2.2
+agent-framework-openai==1.2.2
+azure-identity>=1.15.0
+python-dotenv>=1.0.0
+
+# Retry logic
+tenacity>=8.2.0

@@ -6,7 +6,16 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddServerSideBlazor();
+builder.Services.AddServerSideBlazor()
+    .AddCircuitOptions(options =>
+    {
+        options.DetailedErrors = builder.Environment.IsDevelopment();
+    })
+    .AddHubOptions(options =>
+    {
+        options.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
+        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+    });
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy => policy

@@ -1,4 +1,3 @@
-using AgenticResolution.Api.Agents;
 using AgenticResolution.Api.Api;
 using AgenticResolution.Api.Data;
 using AgenticResolution.Api.Webhooks;
@@ -33,12 +32,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("Default"))
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
-builder.Services.AddHttpClient("agents");
-builder.Services.AddScoped<AgentOrchestrationService>();
-builder.Services.AddScoped<IWorkflowProgressTracker, WorkflowProgressTracker>();
 builder.Services.AddScoped<ITicketNumberGenerator, TicketNumberGenerator>();
-builder.Services.AddSingleton<IResolutionQueue, ResolutionQueue>();
-builder.Services.AddHostedService<ResolutionRunnerService>();
 builder.Services.AddSingleton<IWebhookDispatcher, WebhookDispatcher>();
 builder.Services.AddHttpClient("webhook");
 builder.Services.AddHostedService<WebhookDispatchService>();

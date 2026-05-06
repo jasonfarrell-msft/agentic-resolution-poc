@@ -46,3 +46,57 @@
 
 **📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
 Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.
+
+---
+
+### 2026-05-06 — Phase 2.5: Blazor Web + Python Resolution API Architecture
+
+**Context:** Architecture pivot focuses Phase 2.5 on creating a modern, decoupled system where Python orchestration owns agent workflow end-to-end, while .NET API remains as a pure ServiceNow CRUD simulator.
+
+**Decisions locked:**
+
+1. **Blazor Web Project (AgenticResolution.Web)**
+   - Separate Blazor Server project (.NET 10, Interactive Server render mode)
+   - Deployed independently to Azure App Service
+   - Typed `TicketsApiClient` with HttpClientFactory
+   - Shared DTO contracts library: `AgenticResolution.Contracts`
+   - Pages: `/tickets` (list), `/tickets/{number}` (detail), `/tickets/{number}/runs/{runId}` (progress)
+   - Clean sidebar layout with branded styling
+
+2. **Python Resolution API (`ca-resolution` Container App)**
+   - FastAPI with SSE streaming endpoint (`POST /resolve`)
+   - Returns Server-Sent Events with workflow progression (classifier → fetch → decomposer → evaluator → resolution/escalation)
+   - Thin wrapper around existing agent framework (no duplication)
+   - Stateless design (no WorkflowRun persistence in Python layer)
+   - Health checks for Azure Container Apps probes
+   - Multi-stage Docker build for production readiness
+
+3. **API Contract Extensions**
+   - Enhanced list filtering: `assignedTo`, `state`, `category`, `priority`, `q`, `sort`, `dir`, pagination
+   - Detail endpoint: `GET /api/tickets/{number}/details` with comments + runs
+   - Comments CRUD: `GET/POST /api/tickets/{number}/comments`
+   - Manual resolve: `POST /api/tickets/{number}/resolve` → 202 Accepted with `runId`
+   - Workflow run visibility: `GET /api/tickets/{number}/runs`, `GET /api/runs/{runId}`, `GET /api/runs/{runId}/events`
+   - Webhook auto-dispatch flag: `Webhook:AutoDispatchOnTicketWrite` (default false)
+
+4. **Webhook-Driven Architecture**
+   - Resolve endpoint fires `resolution.started` webhook unconditionally
+   - Azure Function receiver (external) owns orchestration
+   - Workflow progress webhooks: `workflow.running`, `workflow.completed`, `workflow.escalated`, `workflow.failed` (opt-in)
+   - RunId correlation in all workflow webhooks for external system integration
+
+5. **.NET API Cleanup**
+   - Orchestration code removed (AgentOrchestrationService, ResolutionRunnerService, IResolutionQueue)
+   - Dead endpoints deleted (resolve, runs, events)
+   - CRUD endpoints preserved (tickets, comments, knowledge base)
+   - Database models preserved (WorkflowRun, WorkflowRunEvent) for potential Python usage
+   - MCP server unchanged (still calls GET/PUT ticket endpoints)
+
+**Rationale:**
+- Clean separation of concerns: .NET owns CRUD, Python owns orchestration, Function owns webhook processing
+- Direct Blazor → Python API removes unnecessary .NET proxy hop
+- SSE streaming enables real-time workflow visualization in UI
+- Stateless Python API allows horizontal scaling in Container Apps
+- Webhook-driven architecture maintains integration potential with external systems
+
+**Status:** ✅ All components implemented and ready for integration

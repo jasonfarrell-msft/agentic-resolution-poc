@@ -33,6 +33,9 @@
 - **Modern Foundry resource type (2025+):** `kind: 'AIFoundry'` does NOT exist as a CognitiveServices kind. The correct modern approach is: (1) `Microsoft.CognitiveServices/accounts` with `kind: 'AIServices'` and `allowProjectManagement: true` — this account IS the Foundry hub; (2) `Microsoft.CognitiveServices/accounts/projects` as child resources for projects. The old `Microsoft.MachineLearningServices/workspaces` with `kind: 'Hub'` / `kind: 'Project'` is the deprecated "Foundry classic" approach and should not be used. No separate ML workspace, no workspace connections needed — the AIServices account and its projects coexist natively. Use API version `2025-06-01` or later for both resources. Project endpoint = AIServices account endpoint; Agents SDK connects to `{endpoint}/projects/{projectName}`. `hubName` is no longer a separate resource name — the AIServices account IS the hub.
 - **Container App KV secrets vs App Service KV references:** App Service (and Function Apps) use an inline reference syntax in app settings: `@Microsoft.KeyVault(VaultName=...;SecretName=...)` — the platform resolves these transparently. Container Apps have NO such inline syntax. Instead, declare a `secrets` array at the `configuration` level with `{ name, keyVaultUrl, identity }` (identity = user-assigned MI resource ID), then reference by `secretRef: '<secret-name>'` in the container's env vars. The MI must hold `Key Vault Secrets User` on the vault. Log Analytics also requires `workspace.properties.customerId` (a GUID) for the CAE `appLogsConfiguration`, not the ARM resource ID — add a `customerId` output to the loganalytics module and pass it through.
 - **Gitignore baseline established (2026-05-04):** Repo had NO .gitignore at root; 184 build artifacts (155 bin/, 29 obj/) were tracked. Added standard .NET .gitignore via `dotnet new gitignore` (484 lines). Modified to preserve `.squad/log/*.md` (project docs, not build logs) by adding `!.squad/log/` negation after the `[Ll]og/` pattern. Untracked all 184 files with `git rm --cached`. Commits: 9c98efa (add .gitignore), 7e121fd (untrack artifacts). Build outputs now properly ignored — no further cleanup needed.
+- **Resolution queue enqueue (2026-07-25):** `POST /api/tickets/{number}/resolve` was creating a `WorkflowRun` but never feeding `IResolutionQueue`. Injected `IResolutionQueue` into the endpoint and called `Enqueue(new ResolutionRunRequest(...))` after save. The `ResolutionRunnerService` background worker now receives work via its channel.
+- **Synthetic progress events removed (2026-07-25):** `AgentOrchestrationService.ProcessTicketAsync` was firing premature Started+Completed events for ClassifierExecutor and IncidentFetchExecutor before any real work. Removed Completed for Classifier (only fires Started + Routed now) and removed IncidentFetchExecutor entirely — the agent call fires under IncidentDecomposerExecutor Started/Completed. Step events should only mark Completed when actual executor work finishes.
+- **Architecture note (agents):** There is no `Agents:IncidentUrl` in the real system. Agents use Agent Framework with defined Executors; the orchestration service's `_config["Agents:IncidentUrl"]` is a stub that will be replaced by proper executor invocation.
 
 
 ## 2026-04-29 — Priority enum flip + Phase 1 Azure deploy
@@ -243,3 +246,30 @@ Jason requested minimal azd infrastructure to deploy the Blazor frontend to App 
 - **Ferro** — ensure `AgenticResolution.Web` Blazor pages render correctly with empty `ApiClient__BaseUrl`.
 - **Jason** — run `azd init` + `azd up` to provision and deploy. After backend deployment, set `ApiClient__BaseUrl` app setting to Container App API FQDN.
 - **Hicks (future)** — when backend is ready, set `deployBackend=true` in `main.parameters.json` or via azd env var; complete `containerRegistry` module call with actual principal IDs; deploy `api` service to Container App.
+
+## 2026-05-06 — Architecture Pivot: Orchestration Moved to Python
+
+### Context
+The architecture pivoted. The .NET API (TicketsNow) remains as a basic CRUD API simulating ServiceNow. All resolution orchestration (AgentOrchestrationService, IResolutionQueue, ResolutionRunnerService, workflow run tracking) moved to a new Python Resolution API.
+
+### What Was Removed
+- **Endpoints:** POST /api/tickets/{number}/resolve, GET /api/tickets/{number}/runs, GET /api/runs/{runId}, GET /api/runs/{runId}/events
+- **Services:** AgentOrchestrationService, IResolutionQueue/ResolutionQueue, ResolutionRunnerService, IWorkflowProgressTracker/WorkflowProgressTracker
+- **Files:** Entire Agents/ folder deleted (AgentOrchestrationService.cs, ResolutionRunnerService.cs, WorkflowProgressTracker.cs, IWorkflowProgressTracker.cs, AgentDefinitions.cs, FoundryAgentService.cs, WORKFLOW_SEQUENCE_NAMES.md)
+- **DTOs:** StartResolveRequest, StartResolveResponse, WorkflowRunResponse, WorkflowRunEventResponse, WorkflowRunDetailResponse
+- **Program.cs registrations:** AgentOrchestrationService, IResolutionQueue, ResolutionRunnerService, IWorkflowProgressTracker, HttpClient("agents")
+
+### What Remains
+- **CRUD endpoints:** POST/GET/PUT tickets, GET tickets list/search, GET/POST comments — unchanged
+- **Webhook dispatch:** IWebhookDispatcher, WebhookDispatchService — unchanged (agents may still trigger webhooks)
+- **Database models:** WorkflowRun.cs, WorkflowRunEvent.cs, AppDbContext DbSets — kept for potential Python API usage; migrations not deleted to avoid breaking existing databases
+- **MCP Server:** TicketsApi.McpServer project untouched — continues calling GET/PUT ticket endpoints
+
+### Verification
+- dotnet build AgenticResolution.sln — SUCCESS (0 errors, 2 NU1510 warnings)
+- .NET API now purely a ServiceNow mock — basic ITSM CRUD interface
+- Python Resolution API owns orchestration, workflow runs, and resolution logic
+
+### Key Decision
+TicketsNow is a **fixed interface contract** simulating ServiceNow. No client can add new endpoints to ServiceNow, so the .NET API remains minimal. Python Resolution API is the orchestration layer calling the .NET API for ticket data/updates.
+

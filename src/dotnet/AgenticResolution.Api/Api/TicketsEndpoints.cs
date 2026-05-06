@@ -1,4 +1,3 @@
-using AgenticResolution.Api.Agents;
 using AgenticResolution.Api.Data;
 using AgenticResolution.Api.Models;
 using AgenticResolution.Api.Webhooks;
@@ -48,26 +47,7 @@ public record CreateCommentRequest(
     [property: Required, StringLength(4000, MinimumLength = 1)] string Body,
     bool IsInternal = false);
 
-public record WorkflowRunResponse(Guid Id, Guid TicketId, WorkflowRunStatus Status, string? TriggeredBy,
-    string? Note, DateTime StartedAt, DateTime? CompletedAt, string? FinalAction, double? FinalConfidence)
-{
-    public static WorkflowRunResponse From(WorkflowRun r) =>
-        new(r.Id, r.TicketId, r.Status, r.TriggeredBy, r.Note, r.StartedAt, r.CompletedAt, r.FinalAction, r.FinalConfidence);
-}
-
-public record WorkflowRunEventResponse(Guid Id, Guid RunId, int Sequence, string? ExecutorId, string EventType, string? Payload, DateTime Timestamp)
-{
-    public static WorkflowRunEventResponse From(WorkflowRunEvent e) =>
-        new(e.Id, e.RunId, e.Sequence, e.ExecutorId, e.EventType, e.Payload, e.Timestamp);
-}
-
-public record WorkflowRunDetailResponse(WorkflowRunResponse Run, IReadOnlyList<WorkflowRunEventResponse> Events);
-
-public record TicketDetailResponse(TicketResponse Ticket, IReadOnlyList<CommentResponse> Comments, IReadOnlyList<WorkflowRunResponse> Runs);
-
-public record StartResolveRequest(string? Note);
-
-public record StartResolveResponse(Guid RunId, string TicketNumber, Guid TicketId, string StatusUrl, string EventsUrl);
+public record TicketDetailResponse(TicketResponse Ticket, IReadOnlyList<CommentResponse> Comments);
 
 public static class TicketsEndpoints
 {
@@ -80,14 +60,8 @@ public static class TicketsEndpoints
         endpoints.MapGet("/{number}/details", GetDetailsByNumberAsync);
         endpoints.MapGet("/{number}/comments", GetCommentsAsync);
         endpoints.MapPost("/{number}/comments", CreateCommentAsync).AddEndpointFilter<ValidationFilter<CreateCommentRequest>>();
-        endpoints.MapGet("/{number}/runs", GetTicketRunsAsync);
-        endpoints.MapPost("/{number}/resolve", StartResolveAsync);
         endpoints.MapGet("/", ListAsync);
         endpoints.MapPut("/{id:guid}", UpdateAsync).AddEndpointFilter<ValidationFilter<UpdateTicketRequest>>();
-
-        var runs = app.MapGroup("/api/runs").WithTags("Runs");
-        runs.MapGet("/{runId:guid}", GetRunAsync);
-        runs.MapGet("/{runId:guid}/events", GetRunEventsAsync);
 
         return app;
     }
@@ -259,14 +233,8 @@ public static class TicketsEndpoints
             .Select(c => CommentResponse.From(c))
             .ToListAsync(ct);
 
-        var runs = await db.WorkflowRuns.AsNoTracking()
-            .Where(r => r.TicketId == ticket.Id)
-            .OrderByDescending(r => r.StartedAt)
-            .Select(r => WorkflowRunResponse.From(r))
-            .ToListAsync(ct);
-
         return TypedResults.Ok(new TicketDetailResponse(
-            TicketResponse.From(ticket), comments, runs));
+            TicketResponse.From(ticket), comments));
     }
 
     private static async Task<Results<Ok<IReadOnlyList<CommentResponse>>, NotFound>> GetCommentsAsync(
@@ -305,105 +273,6 @@ public static class TicketsEndpoints
         await db.SaveChangesAsync(ct);
 
         return TypedResults.Created($"/api/tickets/{number}/comments", CommentResponse.From(comment));
-    }
-
-    private static async Task<Results<Ok<IReadOnlyList<WorkflowRunResponse>>, NotFound>> GetTicketRunsAsync(
-        string number, AppDbContext db, CancellationToken ct)
-    {
-        var ticket = await db.Tickets.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Number == number, ct);
-        if (ticket is null) return TypedResults.NotFound();
-
-        var runs = await db.WorkflowRuns.AsNoTracking()
-            .Where(r => r.TicketId == ticket.Id)
-            .OrderByDescending(r => r.StartedAt)
-            .Select(r => WorkflowRunResponse.From(r))
-            .ToListAsync(ct);
-
-        return TypedResults.Ok<IReadOnlyList<WorkflowRunResponse>>(runs);
-    }
-
-    private static async Task<Results<Accepted<StartResolveResponse>, Ok<StartResolveResponse>, NotFound>> StartResolveAsync(
-        string number, StartResolveRequest? req, AppDbContext db,
-        IWebhookDispatcher webhookDispatcher, CancellationToken ct)
-    {
-        var ticket = await db.Tickets.FirstOrDefaultAsync(t => t.Number == number, ct);
-        if (ticket is null) return TypedResults.NotFound();
-
-        var existing = await db.WorkflowRuns
-            .Where(r => r.TicketId == ticket.Id &&
-                (r.Status == WorkflowRunStatus.Pending || r.Status == WorkflowRunStatus.Running))
-            .OrderByDescending(r => r.StartedAt)
-            .FirstOrDefaultAsync(ct);
-
-        if (existing is not null)
-        {
-            var existingResponse = new StartResolveResponse(
-                existing.Id,
-                ticket.Number,
-                ticket.Id,
-                $"/api/runs/{existing.Id}",
-                $"/api/runs/{existing.Id}/events");
-            return TypedResults.Ok(existingResponse);
-        }
-
-        var run = new WorkflowRun
-        {
-            Id = Guid.NewGuid(),
-            TicketId = ticket.Id,
-            Status = WorkflowRunStatus.Pending,
-            TriggeredBy = "manual",
-            Note = req?.Note,
-            StartedAt = DateTime.UtcNow
-        };
-
-        db.WorkflowRuns.Add(run);
-        await db.SaveChangesAsync(ct);
-
-        // Fire webhook unconditionally - receiver handles orchestration
-        webhookDispatcher.Enqueue(WebhookPayload.ForResolutionStarted(ticket, run.Id));
-
-        var response = new StartResolveResponse(
-            run.Id,
-            ticket.Number,
-            ticket.Id,
-            $"/api/runs/{run.Id}",
-            $"/api/runs/{run.Id}/events");
-
-        return TypedResults.Accepted($"/api/runs/{run.Id}", response);
-    }
-
-    private static async Task<Results<Ok<WorkflowRunDetailResponse>, NotFound>> GetRunAsync(
-        Guid runId, AppDbContext db, CancellationToken ct)
-    {
-        var run = await db.WorkflowRuns.AsNoTracking()
-            .FirstOrDefaultAsync(r => r.Id == runId, ct);
-        if (run is null) return TypedResults.NotFound();
-
-        var events = await db.WorkflowRunEvents.AsNoTracking()
-            .Where(e => e.RunId == runId)
-            .OrderBy(e => e.Sequence)
-            .Select(e => WorkflowRunEventResponse.From(e))
-            .ToListAsync(ct);
-
-        return TypedResults.Ok(new WorkflowRunDetailResponse(
-            WorkflowRunResponse.From(run), events));
-    }
-
-    private static async Task<Results<Ok<IReadOnlyList<WorkflowRunEventResponse>>, NotFound>> GetRunEventsAsync(
-        Guid runId, AppDbContext db, CancellationToken ct)
-    {
-        var exists = await db.WorkflowRuns.AsNoTracking()
-            .AnyAsync(r => r.Id == runId, ct);
-        if (!exists) return TypedResults.NotFound();
-
-        var events = await db.WorkflowRunEvents.AsNoTracking()
-            .Where(e => e.RunId == runId)
-            .OrderBy(e => e.Sequence)
-            .Select(e => WorkflowRunEventResponse.From(e))
-            .ToListAsync(ct);
-
-        return TypedResults.Ok<IReadOnlyList<WorkflowRunEventResponse>>(events);
     }
 }
 

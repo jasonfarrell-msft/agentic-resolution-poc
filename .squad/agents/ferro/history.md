@@ -20,6 +20,11 @@
 
 ## Learnings
 
+- **2026-07-14 — Circuit timeout + post-resolution nav fixes.**
+  - `Program.cs`: Configured `AddServerSideBlazor()` with `ClientTimeoutInterval = 5 min`, `KeepAliveInterval = 15s`, and `DetailedErrors` in dev. Prevents HubConnection drops during long resolution workflows.
+  - `App.razor`: Already had `<ReconnectModal />` — no change needed.
+  - `RunProgress.razor`: Injected `NavigationManager`. After polling detects terminal status (Completed/Failed/Escalated), waits 3s then navigates to `/tickets/{Number}` so the user lands back on the updated ticket detail.
+
 - **2026-04-29 — Phase 1 UI shipped.** Single-project Blazor Server (net10.0) at `src/AgenticResolution.Web/`. Built clean (0 warnings).
   - **Routes:**
     - `/` → redirects to `/tickets` (`Pages/Index.razor`)

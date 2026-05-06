@@ -1,6 +1,7 @@
 @page "/tickets/{Number}/runs/{RunId:guid}"
 @implements IDisposable
 @inject TicketApiClient ApiClient
+@inject NavigationManager Navigation
 
 <PageTitle>Run @RunId — TicketNow</PageTitle>
 
@@ -178,6 +179,13 @@ else
                 await InvokeAsync(StateHasChanged);
                 break;
             }
+        }
+
+        // Navigate back to ticket detail after a brief delay so user sees final state
+        if (Run is not null && IsTerminalStatus(Run.Status) && !cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            await InvokeAsync(() => Navigation.NavigateTo($"/tickets/{Number}"));
         }
     }
 
