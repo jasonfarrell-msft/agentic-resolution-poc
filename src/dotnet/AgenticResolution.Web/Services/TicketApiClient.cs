@@ -73,33 +73,6 @@ public sealed class TicketApiClient
         return await ReadRequiredAsync<TicketDetailResponse>(response, cancellationToken);
     }
 
-    public async Task<StartResolveResponse> ResolveTicketAsync(
-        string number,
-        string? note,
-        CancellationToken cancellationToken = default)
-    {
-        var payload = new ResolveTicketRequest(note);
-        var response = await _httpClient.PostAsJsonAsync($"api/tickets/{number}/resolve", payload, JsonOptions, cancellationToken);
-        return await ReadRequiredAsync<StartResolveResponse>(response, cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<WorkflowRunEventResponse>> GetRunEventsAsync(
-        Guid runId,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await _httpClient.GetAsync($"api/runs/{runId}/events", cancellationToken);
-        var events = await ReadRequiredAsync<List<WorkflowRunEventResponse>>(response, cancellationToken);
-        return events;
-    }
-
-    public async Task<WorkflowRunResponse> GetRunAsync(
-        Guid runId,
-        CancellationToken cancellationToken = default)
-    {
-        var response = await _httpClient.GetAsync($"api/runs/{runId}", cancellationToken);
-        var detail = await ReadRequiredAsync<WorkflowRunDetailResponse>(response, cancellationToken);
-        return detail.Run;
-    }
 
     public async Task<PagedResponse<KnowledgeArticleResponse>> GetArticlesAsync(
         string? query = null, string? category = null, int page = 1, int pageSize = 20,
@@ -205,23 +178,6 @@ public sealed record CommentResponse
     public string Body { get; init; } = string.Empty;
     public DateTime CreatedAt { get; init; }
     public bool IsInternal { get; init; }
-}
-
-public sealed record StartResolveResponse
-{
-    public Guid RunId { get; init; }
-    public string TicketNumber { get; init; } = string.Empty;
-    public Guid TicketId { get; init; }
-    public string StatusUrl { get; init; } = string.Empty;
-    public string EventsUrl { get; init; } = string.Empty;
-}
-
-public sealed record ResolveTicketRequest(string? Note);
-
-public sealed record WorkflowRunDetailResponse
-{
-    public WorkflowRunResponse Run { get; init; } = new();
-    public IReadOnlyList<WorkflowRunEventResponse> Events { get; init; } = Array.Empty<WorkflowRunEventResponse>();
 }
 
 public sealed record WorkflowRunResponse

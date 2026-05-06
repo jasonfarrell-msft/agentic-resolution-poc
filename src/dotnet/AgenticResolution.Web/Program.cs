@@ -31,6 +31,15 @@ builder.Services.AddHttpClient<TicketApiClient>(client =>
         client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     }
 });
+builder.Services.AddHttpClient<ResolutionApiClient>(client =>
+{
+    var baseUrl = builder.Configuration["ResolutionApi:BaseUrl"];
+    if (!string.IsNullOrWhiteSpace(baseUrl))
+    {
+        client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    }
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 
 var app = builder.Build();
 

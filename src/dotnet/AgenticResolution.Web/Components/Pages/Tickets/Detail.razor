@@ -38,8 +38,8 @@ else
         </div>
         @if (CanResolve)
         {
-            <button class="btn btn-primary" disabled="@IsResolving" @onclick="ResolveTicketAsync">
-                @(IsResolving ? "Resolving..." : "Resolve with AI")
+            <button class="btn btn-primary" @onclick="ResolveTicketAsync">
+                Resolve with AI
             </button>
         }
     </div>
@@ -150,7 +150,6 @@ else
 
     private TicketDetailResponse? Details;
     private bool IsLoading = true;
-    private bool IsResolving;
     private string? ErrorMessage;
 
     protected override async Task OnParametersSetAsync()
@@ -196,28 +195,8 @@ else
     private bool CanResolve =>
         Details?.Ticket.State is TicketState.New or TicketState.InProgress;
 
-    private async Task ResolveTicketAsync()
+    private void ResolveTicketAsync()
     {
-        if (IsResolving)
-        {
-            return;
-        }
-
-        IsResolving = true;
-        ErrorMessage = null;
-
-        try
-        {
-            var response = await ApiClient.ResolveTicketAsync(Number, null);
-            Navigation.NavigateTo($"/tickets/{Number}/runs/{response.RunId}");
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-        }
-        finally
-        {
-            IsResolving = false;
-        }
+        Navigation.NavigateTo($"/tickets/{Number}/resolve");
     }
 }

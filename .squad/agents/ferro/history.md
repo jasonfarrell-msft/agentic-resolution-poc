@@ -173,3 +173,51 @@ If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's a
 - Built ticket list, detail, and run progress pages with sidebar layout, badges, and timeline UI.
 - Added branded styling in `wwwroot/app.css`, updated appsettings for API base URL, and created Dockerfile for App Service (port 8080).
 - `dotnet build src/dotnet/AgenticResolution.sln` succeeded (warning: NU1510 for Microsoft.Extensions.Http).
+
+## 2026-07-15 — Resolution Flow Rewired to Python SSE API
+
+**Trigger:** Architecture pivot — .NET API is now CRUD-only. Resolution orchestration moved to Python Resolution API with SSE streaming.
+
+### Changes Made
+
+1. **New `ResolutionApiClient` service** (`Services/ResolutionApiClient.cs`):
+   - Calls `POST {ResolutionApi:BaseUrl}/resolve` with `{"ticket_number": "..."}`.
+   - Uses `HttpCompletionOption.ResponseHeadersRead` + `ReadAsStreamAsync` for SSE consumption.
+   - Returns `IAsyncEnumerable<ResolutionEvent>` — each event has `Stage`, `Status`, `Timestamp`, `Result`, `Error`.
+   - 5-minute HttpClient timeout configured for long-running resolutions.
+
+2. **Configuration** (`appsettings.json` / `appsettings.Development.json`):
+   - Added `ResolutionApi:BaseUrl` key. Dev default: `http://localhost:8000`.
+
+3. **Rewired `Detail.razor`**:
+   - "Resolve with AI" button now navigates to `/tickets/{Number}/resolve` (SSE streaming page).
+   - Removed old `ResolveTicketAsync()` method that called `POST /api/tickets/{number}/resolve` on .NET API.
+
+4. **Replaced `RunProgress.razor`** (now at route `/tickets/{Number}/resolve`):
+   - Consumes SSE stream in real-time, updates stage progress via `StateHasChanged()`.
+   - Shows timeline with stages: Classifier → Incident/Request Fetch → Decomposer → Evaluator → Resolution.
+   - Stage indicators: running (blue), completed (green), failed (red).
+   - On completion: shows "Complete" badge, navigates back to ticket detail after 2s.
+   - On error: shows error message with Retry button.
+
+5. **Dead code removed**:
+   - `TicketApiClient.ResolveTicketAsync()` — called old .NET resolve endpoint.
+   - `TicketApiClient.GetRunAsync()` / `GetRunEventsAsync()` — polled old .NET run endpoints.
+   - `StartResolveResponse`, `ResolveTicketRequest`, `WorkflowRunDetailResponse` DTOs.
+   - `Microsoft.AspNetCore.SignalR.Client` NuGet package (unused).
+   - `Microsoft.Extensions.Http` NuGet package (framework-provided, NU1510 warning gone).
+
+6. **Build:** `dotnet build src/dotnet/AgenticResolution.sln` — 0 warnings, 0 errors.
+
+### SSE Pattern Notes
+- Blazor Server SSE: HttpClient runs server-side, pushes to component via `InvokeAsync(StateHasChanged)`.
+- `ReadLineAsync` loop (not `EndOfStream` check) avoids CA2024 analyzer warning.
+- SSE lines prefixed `data: ` contain JSON; blank lines and non-data lines are skipped.
+- `HttpCompletionOption.ResponseHeadersRead` is critical — without it, HttpClient buffers the entire response.
+
+**Integration Status (2026-05-06):**
+- ✅ Blazor UI fully rewired to consume SSE from Python Resolution API directly
+- ✅ Dead SignalR/polling code removed (0 errors, 0 warnings)
+- ✅ ResolutionApiClient configured with 5-minute timeout for long-running workflows
+- ✅ Ready to call `POST /resolve` on deployed ca-resolution-tocqjp4pnegfo (managed identity, external ingress)
+- ✅ Dynamic stage rendering resilient to Python API schema evolution

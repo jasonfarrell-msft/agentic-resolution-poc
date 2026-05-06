@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python source tree (agents, shared, workflow, resolution_api)
-COPY src/python /app
+COPY . /app
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r /app/resolution_api/requirements.txt

@@ -17,6 +17,13 @@
 - ResolutionRunnerService processes manual resolution runs via queue; no automatic agent triggering from webhooks
 - Workflow executor sequence documented for Ferro's UI: ClassifierExecutor → IncidentFetchExecutor → IncidentDecomposerExecutor → EvaluatorExecutor → ResolutionExecutor/EscalationExecutor
 
+**Current state (2026-05-06):**
+- ✅ Deployed ca-resolution-tocqjp4pnegfo to Azure Container Apps (managed identity, external ingress port 8000)
+- ✅ Deleted ca-agres-tocqjp4pnegfo (unused stub)
+- ✅ Health endpoint verified: `GET /health` → `{"status":"healthy"}`
+- ✅ Environment variables configured: AZURE_AI_ENDPOINT, MCP_SERVER_URL, TICKETS_API_URL
+- Blazor UI ready to call `POST /resolve` on Python API for SSE-streamed resolution workflow
+
 **Key locked decisions:**
 - Hybrid search: BM25 + vector similarity + semantic reranking; top 5 results to triage agent
 - Single index, no multi-index KB corpus (Phase 3+)
@@ -137,6 +144,35 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 ---
 
 ## Learnings
+
+### 2026-05-06: ca-resolution Container App Deployment
+
+**Deployed:** `ca-resolution-tocqjp4pnegfo` to Azure Container Apps (East US 2)
+
+**FQDN:** `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+
+**Configuration:**
+- Image: `acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:latest`
+- Ingress: external, port 8000
+- Scale: 0–1 replicas (scale-to-zero enabled)
+- Identity: System-assigned managed identity (principal: `8cedc719-fa1c-475c-bf82-f05c84ad1d99`)
+- ACR pull: system identity
+- RBAC: "Cognitive Services OpenAI User" on `oai-agentic-res-src-dev`
+
+**Environment variables:**
+- `AZURE_AI_ENDPOINT=https://oai-agentic-res-src-dev.cognitiveservices.azure.com/`
+- `MCP_SERVER_URL=https://ca-mcp-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/mcp`
+- `TICKETS_API_URL=https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+
+**Deployment patterns learned:**
+- ACR build (`az acr build`) avoids local Docker requirement; builds in cloud
+- `--registry-identity system` enables system-assigned MI for ACR pull (no credentials)
+- Pydantic version must be `>=2.11.0` due to `mcp` package dependency
+- Cold start from scale-to-zero takes ~60s for Python containers
+- Dockerfile build context = `src/python/`, COPY uses `.` not `src/python`
+- Deleted unused `ca-agres-tocqjp4pnegfo` container app
+
+---
 
 ### 2026-05-06: Python Resolution API — FastAPI wrapper for agent workflow
 

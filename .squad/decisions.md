@@ -1,5 +1,87 @@
 # Squad Decisions
 
+### 2026-05-06: Bishop — ca-resolution Container App Deployed
+
+**By:** Bishop (AI/Agents Specialist)  
+**Requested by:** Jason Farrell
+
+**Status:** Deployed and verified.
+
+**What was done:**
+1. Deleted unused `ca-agres-tocqjp4pnegfo` container app
+2. Fixed Dockerfile COPY path (build context is `src/python/`, not repo root)
+3. Fixed pydantic version pin (`>=2.11.0` required by `mcp` package)
+4. Built image via `az acr build` (cloud build, no local Docker needed)
+5. Created `ca-resolution-tocqjp4pnegfo` with system-assigned managed identity
+6. Granted "Cognitive Services OpenAI User" RBAC on Azure OpenAI resource
+7. Verified health endpoint returns `{"status":"healthy"}`
+
+**Container App:**
+- Name: `ca-resolution-tocqjp4pnegfo`
+- FQDN: `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+- Port: 8000 (external ingress)
+- Scale: 0–1 replicas
+- Identity: System-assigned MI (ACR pull + Azure OpenAI access)
+
+**Environment:**
+- `AZURE_AI_ENDPOINT` → oai-agentic-res-src-dev
+- `MCP_SERVER_URL` → ca-mcp internal URL
+- `TICKETS_API_URL` → ca-api external URL
+
+**Impact:**
+- Blazor UI can now call `POST /resolve` on this endpoint for SSE-streamed agent workflow
+- Replaces the previously unused ca-agres stub
+- Uses same Azure AI Foundry endpoint as classifier/incident/request agents
+
+---
+
+### 2026-05-06: Ferro — Resolution UI Rewired to Python SSE API
+
+**By:** Ferro (Frontend Developer)  
+**Status:** Implemented
+
+## Context
+
+Architecture pivot: .NET API is now CRUD-only (tickets, KB articles). Resolution orchestration moved to a **Python Resolution API** (`POST /resolve`) that streams SSE events.
+
+## Decision
+
+Blazor calls the Python Resolution API **directly** (not through .NET). The SSE stream is consumed server-side via `HttpClient.SendAsync(ResponseHeadersRead)` + `StreamReader.ReadLineAsync`, pushing updates to the Razor component via `InvokeAsync(StateHasChanged)`.
+
+## Key Choices
+
+1. **Separate `ResolutionApiClient`** — not merged into `TicketApiClient`. Different base URL, different concern (streaming vs REST), different timeout (5 min vs default).
+
+2. **New route `/tickets/{Number}/resolve`** — replaces old `/tickets/{Number}/runs/{RunId}`. No run ID concept from Python API; the stream is the entire lifecycle.
+
+3. **Stage dictionary** — events update a `Dictionary<string, StageState>` keyed by stage name. Stages appear dynamically as events arrive (no hardcoded list needed), making the UI resilient to Python API adding/removing stages.
+
+4. **Auto-redirect on completion** — 2-second delay then navigate to ticket detail. User sees final "Complete" state briefly before redirect.
+
+5. **Retry on error** — button re-invokes `POST /resolve`. No deduplication logic (Python API handles idempotency if needed).
+
+## Removed
+
+- `POST /api/tickets/{number}/resolve` call (endpoint deleted from .NET)
+- `GET /api/runs/{runId}` / `GET /api/runs/{runId}/events` polling
+- SignalR client package (no longer needed)
+- Old DTOs: `StartResolveResponse`, `ResolveTicketRequest`, `WorkflowRunDetailResponse`
+
+## Configuration
+
+| Key | Purpose | Dev Default |
+|-----|---------|-------------|
+| `ResolutionApi:BaseUrl` | Python Resolution API | `http://localhost:8000` |
+| `ApiClient:BaseUrl` | .NET CRUD API | `https://localhost:7001` |
+
+## Impact
+
+- **Detail page**: "Resolve with AI" navigates to new streaming page.
+- **Ticket CRUD**: Unaffected — still uses `TicketApiClient` against .NET API.
+- **Old run history**: The "Workflow Runs" section on ticket detail still displays runs from .NET API (historical data). No new runs will be created there.
+
+---
+
 ### 2026-05-05: Bishop — Split DecomposerAgent into IncidentDecomposer + RequestDecomposer
 
 **By:** Bishop (AI/Agents Specialist)  
