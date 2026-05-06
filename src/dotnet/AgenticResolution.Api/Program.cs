@@ -116,6 +116,69 @@ END
         {
             Console.Error.WriteLine($"[Startup] KnowledgeArticles fallback failed: {ex.GetType().Name}: {ex.Message}");
         }
+
+        // Idempotent fallback: ensure Comments, WorkflowRuns, WorkflowRunEvents tables exist.
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Comments')
+BEGIN
+    CREATE TABLE [Comments] (
+        [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
+        [TicketId] uniqueidentifier NOT NULL,
+        [Author] nvarchar(100) NOT NULL,
+        [Body] nvarchar(max) NOT NULL,
+        [IsInternal] bit NOT NULL DEFAULT 0,
+        [CreatedAt] datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_Comments] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_Comments_Tickets_TicketId] FOREIGN KEY ([TicketId]) REFERENCES [Tickets] ([Id]) ON DELETE CASCADE
+    );
+    CREATE INDEX [IX_Comments_TicketId] ON [Comments] ([TicketId]);
+    PRINT 'Comments table created.';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WorkflowRuns')
+BEGIN
+    CREATE TABLE [WorkflowRuns] (
+        [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
+        [TicketId] uniqueidentifier NOT NULL,
+        [Status] int NOT NULL DEFAULT 0,
+        [TriggeredBy] nvarchar(100) NULL,
+        [Note] nvarchar(500) NULL,
+        [StartedAt] datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        [CompletedAt] datetime2 NULL,
+        [FinalAction] nvarchar(100) NULL,
+        [FinalConfidence] float NULL,
+        CONSTRAINT [PK_WorkflowRuns] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_WorkflowRuns_Tickets_TicketId] FOREIGN KEY ([TicketId]) REFERENCES [Tickets] ([Id]) ON DELETE CASCADE
+    );
+    CREATE INDEX [IX_WorkflowRuns_TicketId_Status] ON [WorkflowRuns] ([TicketId], [Status]);
+    PRINT 'WorkflowRuns table created.';
+END
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WorkflowRunEvents')
+BEGIN
+    CREATE TABLE [WorkflowRunEvents] (
+        [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
+        [RunId] uniqueidentifier NOT NULL,
+        [Sequence] int NOT NULL DEFAULT 0,
+        [ExecutorId] nvarchar(100) NULL,
+        [EventType] nvarchar(50) NOT NULL,
+        [Payload] nvarchar(max) NULL,
+        [Timestamp] datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT [PK_WorkflowRunEvents] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_WorkflowRunEvents_WorkflowRuns_RunId] FOREIGN KEY ([RunId]) REFERENCES [WorkflowRuns] ([Id]) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX [IX_WorkflowRunEvents_RunId_Sequence] ON [WorkflowRunEvents] ([RunId], [Sequence]);
+    PRINT 'WorkflowRunEvents table created.';
+END
+");
+            Console.WriteLine("[Startup] Comments/WorkflowRuns table check completed.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Startup] Comments/WorkflowRuns fallback failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 }
 
