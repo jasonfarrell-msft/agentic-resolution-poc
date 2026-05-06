@@ -117,12 +117,11 @@ END
             Console.Error.WriteLine($"[Startup] KnowledgeArticles fallback failed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        // Idempotent fallback: ensure Comments, WorkflowRuns, WorkflowRunEvents tables exist.
+        // Force-create Comments, WorkflowRuns, WorkflowRunEvents tables; swallow "already exists" errors.
         try
         {
             await db.Database.ExecuteSqlRawAsync(@"
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Comments')
-BEGIN
+BEGIN TRY
     CREATE TABLE [Comments] (
         [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
         [TicketId] uniqueidentifier NOT NULL,
@@ -134,11 +133,9 @@ BEGIN
         CONSTRAINT [FK_Comments_Tickets_TicketId] FOREIGN KEY ([TicketId]) REFERENCES [Tickets] ([Id]) ON DELETE CASCADE
     );
     CREATE INDEX [IX_Comments_TicketId] ON [Comments] ([TicketId]);
-    PRINT 'Comments table created.';
-END
+END TRY BEGIN CATCH END CATCH
 
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WorkflowRuns')
-BEGIN
+BEGIN TRY
     CREATE TABLE [WorkflowRuns] (
         [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
         [TicketId] uniqueidentifier NOT NULL,
@@ -153,11 +150,9 @@ BEGIN
         CONSTRAINT [FK_WorkflowRuns_Tickets_TicketId] FOREIGN KEY ([TicketId]) REFERENCES [Tickets] ([Id]) ON DELETE CASCADE
     );
     CREATE INDEX [IX_WorkflowRuns_TicketId_Status] ON [WorkflowRuns] ([TicketId], [Status]);
-    PRINT 'WorkflowRuns table created.';
-END
+END TRY BEGIN CATCH END CATCH
 
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WorkflowRunEvents')
-BEGIN
+BEGIN TRY
     CREATE TABLE [WorkflowRunEvents] (
         [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
         [RunId] uniqueidentifier NOT NULL,
@@ -170,8 +165,7 @@ BEGIN
         CONSTRAINT [FK_WorkflowRunEvents_WorkflowRuns_RunId] FOREIGN KEY ([RunId]) REFERENCES [WorkflowRuns] ([Id]) ON DELETE CASCADE
     );
     CREATE UNIQUE INDEX [IX_WorkflowRunEvents_RunId_Sequence] ON [WorkflowRunEvents] ([RunId], [Sequence]);
-    PRINT 'WorkflowRunEvents table created.';
-END
+END TRY BEGIN CATCH END CATCH
 ");
             Console.WriteLine("[Startup] Comments/WorkflowRuns table check completed.");
         }
