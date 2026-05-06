@@ -127,6 +127,7 @@ else
     [
         TicketState.New,
         TicketState.InProgress,
+        TicketState.OnHold,
         TicketState.Resolved,
         TicketState.Closed,
         TicketState.Cancelled
@@ -220,6 +221,7 @@ else
     private static string GetStateLabel(TicketState state) => state switch
     {
         TicketState.InProgress => "In Progress",
+        TicketState.OnHold => "On Hold",
         _ => state.ToString()
     };
 }

@@ -97,7 +97,8 @@ public sealed class TicketApiClient
         CancellationToken cancellationToken = default)
     {
         var response = await _httpClient.GetAsync($"api/runs/{runId}", cancellationToken);
-        return await ReadRequiredAsync<WorkflowRunResponse>(response, cancellationToken);
+        var detail = await ReadRequiredAsync<WorkflowRunDetailResponse>(response, cancellationToken);
+        return detail.Run;
     }
 
     public async Task<PagedResponse<KnowledgeArticleResponse>> GetArticlesAsync(
@@ -194,7 +195,7 @@ public sealed record TicketResponse
     public string? AssignedTo { get; init; }
     public string? Caller { get; init; }
     public DateTime CreatedAt { get; init; }
-    public DateTime? ModifiedAt { get; init; }
+    public DateTime? UpdatedAt { get; init; }
 }
 
 public sealed record CommentResponse
@@ -216,6 +217,12 @@ public sealed record StartResolveResponse
 }
 
 public sealed record ResolveTicketRequest(string? Note);
+
+public sealed record WorkflowRunDetailResponse
+{
+    public WorkflowRunResponse Run { get; init; } = new();
+    public IReadOnlyList<WorkflowRunEventResponse> Events { get; init; } = Array.Empty<WorkflowRunEventResponse>();
+}
 
 public sealed record WorkflowRunResponse
 {
@@ -256,9 +263,10 @@ public enum TicketState
 {
     New = 0,
     InProgress = 1,
-    Resolved = 2,
-    Closed = 3,
-    Cancelled = 4
+    OnHold = 2,
+    Resolved = 3,
+    Closed = 4,
+    Cancelled = 5
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
