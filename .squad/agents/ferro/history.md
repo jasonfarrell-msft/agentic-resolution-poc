@@ -180,6 +180,20 @@ If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's a
 
 ### Changes Made
 
+## 2026-05-06T194800 — Deployment Verification
+
+**Trigger:** Production deployment validation of latest Blazor fixes and Resolution API integration.
+
+**Status:** ✅ Success
+
+**Actions:**
+- Deployed latest Blazor web app fixes to Azure App Service `app-agentic-resolution-web`
+- Verified HTTPS 200 response at https://app-agentic-resolution-web.azurewebsites.net/
+- Confirmed production `ResolutionApi__BaseUrl` configuration points to `ca-resolution` endpoint
+- Validated frontend connectivity to backend Resolution API
+
+**Result:** Production Blazor web app operational and correctly configured to call Python Resolution API.
+
 1. **New `ResolutionApiClient` service** (`Services/ResolutionApiClient.cs`):
    - Calls `POST {ResolutionApi:BaseUrl}/resolve` with `{"ticket_number": "..."}`.
    - Uses `HttpCompletionOption.ResponseHeadersRead` + `ReadAsStreamAsync` for SSE consumption.
@@ -235,3 +249,8 @@ If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's a
 - Resolution streaming route keeps rendering immediately, shows a clear stream-start loading card until SSE events arrive, preserves terminal-state handling, and redirects back to ticket detail after terminal completion.
 - Ticket list initial load now starts in the background with existing skeleton rows and a retry affordance on failure.
 - Verified with `dotnet build src\dotnet\AgenticResolution.sln --nologo`.
+
+### 2026-05-06 — Azure Web App deployment
+- Published `src\dotnet\AgenticResolution.Web` in Release and deployed it to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- Production app setting `ResolutionApi__BaseUrl` is set to `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`.
+- Verified `https://app-agentic-resolution-web.azurewebsites.net/` returned HTTP 200 after deployment.

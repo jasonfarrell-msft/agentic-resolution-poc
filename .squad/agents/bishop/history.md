@@ -145,6 +145,30 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 ## Learnings
 
+### 2026-05-06: Resolution API deploy verification
+
+**Verification target:** `ca-resolution-tocqjp4pnegfo`
+
+**Deployed URL:** `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+
+**Image/revision verified:**
+- Active image: `acragressrcdevtocqjp4pnegfo.azurecr.io/resolution-api:terminal-events-20260506193957`
+- Active revision: `ca-resolution-tocqjp4pnegfo--0000003`
+- Traffic: 100% to latest ready revision.
+- Restarted the active revision after an aborted smoke client left the singleton workflow busy; no image rebuild was required.
+
+**Health:** `GET /health` returned `healthy`.
+
+**Smoke test:**
+- Used existing safe demo ticket `INC0010102`.
+- `POST /resolve` streamed progress through classifier → request fetch → request decomposer → evaluator → resolution.
+- Final deterministic terminal SSE event observed: `{"stage":"workflow","status":"resolved","event":"resolved","terminal":true}`.
+- Ticket remained `Resolved` with `agentAction=auto_resolved`; confidence updated to `0.80`.
+
+**Operational note:** Read `/resolve` SSE streams until a terminal event before closing the client. Closing early can leave the singleton Agent Framework workflow busy until the container process is restarted.
+
+---
+
 ### 2026-05-06: Resolution API terminal SSE fix
 
 **Issue diagnosed:** Deployed `ca-resolution-tocqjp4pnegfo` was calling `workflow.run_stream(...)`, but Agent Framework `Workflow` exposes `run(..., stream=True)` instead. The stream emitted `classifier started`, then failed with `'Workflow' object has no attribute 'run_stream'`, causing the Resolve UI to finish without the expected terminal workflow event.
@@ -233,6 +257,21 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 {"stage": "incident_fetch", "status": "completed", "result": {...}}
 {"stage": "incident_decomposer", "status": "started"}
 {"stage": "incident_decomposer", "status": "completed", "result": {...}}
+
+## 2026-05-06T194800 — Deployment Verification
+
+**Trigger:** Production deployment validation of ca-resolution container app.
+
+**Status:** ✅ Success
+
+**Actions:**
+- Verified `ca-resolution` running on `terminal-events` revision
+- Confirmed `GET /health` → `{"status":"healthy"}`
+- Smoke-tested `POST /resolve` with ticket INC0010102
+- Validated SSE stream emitted progress and terminal resolved event
+- Verified ticket persisted as Resolved with `agentAction=auto_resolved`
+
+**Result:** Production Resolution API operational, streaming terminal events deterministically, and end-to-end workflow validated.
 {"stage": "evaluator", "status": "started"}
 {"stage": "evaluator", "status": "completed", "result": {"confidence": 0.85}}
 {"stage": "resolution", "status": "started"}
