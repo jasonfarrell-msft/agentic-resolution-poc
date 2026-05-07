@@ -40,9 +40,17 @@
 
 ---
 
-## Learnings
+## 2026-05-07 — Azure Web Deployment
 
-- **2026-05-07 — Ticket list loading restored.**
+✅ **Deployed** AgenticResolution.Web to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+
+- **Build**: Succeeded with local .NET 10
+- **API Configuration**: `TICKETS_API_URL` environment variable now prioritized over JSON defaults
+- **Validation**: Live `/tickets` endpoint returns HTTP 200, ticket rows render correctly, no routing errors
+- **Config**: App Service settings updated with `ApiClient__BaseUrl` and `ResolutionApi__BaseUrl`
+- **Limitation**: HTTP-based validation only (no browser automation)
+- **Status**: Operational with corrected ticket API configuration
+
   - Production/default Blazor config now sets `ApiClient:BaseUrl` to `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`; the previous empty default left `/tickets` in the API-not-configured state after the Python Resolution API/SSE pivot.
   - `Program.cs` now also accepts `TICKETS_API_URL` as a fallback for `TicketApiClient`, matching the Resolution API environment variable naming used by the Python service.
   - `Components/Pages/Tickets/Index.razor` awaits `LoadTicketsAsync()` from `OnInitializedAsync` instead of fire-and-forget startup loading, and `TicketApiClient` now returns status/body details for failed REST calls.
@@ -308,3 +316,10 @@ From Hicks (Backend Dev): Ticket loading issue was verified as frontend-side con
 Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was `TicketApiClient` preferring `ApiClient:BaseUrl` (localhost:7001) over environment `TICKETS_API_URL`. Updated `Program.cs` to prioritize `TICKETS_API_URL`. Validated with local build and run showing live INC ticket rows. Status: Complete, ready for deployment.
 
 **Collaboration note:** Hicks confirmed backend API is healthy and serving expected JSON. No backend changes required.
+
+### 2026-05-07 — Azure Web App redeploy with corrected tickets API precedence
+- Built `src/dotnet/AgenticResolution.sln` and published `src/dotnet/AgenticResolution.Web` with local .NET 10 (`DOTNET_ROOT=$HOME/.dotnet`).
+- Deployed the Release zip artifact to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- Confirmed App Service settings include `ApiClient__BaseUrl` and `TICKETS_API_URL` pointing at the tickets Container App, plus `ResolutionApi__BaseUrl` pointing at the resolution Container App.
+- Verified live `https://app-agentic-resolution-web.azurewebsites.net/tickets` returns HTTP 200, renders ticket rows, and the returned markup does not contain the previous API URL precedence/localhost error text.
+- HTTP-only validation was used; browser automation was not run in this environment.

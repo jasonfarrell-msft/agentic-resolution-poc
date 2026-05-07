@@ -1,5 +1,27 @@
 # Squad Decisions
 
+### 2026-05-07: Ferro — Blazor Web App Deployed to Azure
+
+**By:** Ferro (Frontend Developer)  
+**Status:** Deployed and validated
+
+**Summary:** Blazor web app deployed to Azure App Service `app-agentic-resolution-web` in resource group `rg-agentic-res-src-dev` using .NET 10.
+
+**Configuration Contract:**
+- `TICKETS_API_URL` and `ApiClient__BaseUrl` point to the tickets API Container App
+- `ResolutionApi__BaseUrl` points to the Python resolution API Container App
+- Runtime precedence: `TICKETS_API_URL` > `ApiBaseUrl` > `ApiClient:BaseUrl` (environment variables override JSON defaults)
+
+**Validation:**
+- `dotnet build src/dotnet/AgenticResolution.sln --nologo -c Release` succeeded
+- Live `/tickets` endpoint returns HTTP 200 and renders ticket rows correctly
+- No localhost/API routing errors present
+- 98 tickets available from ca-api
+
+**Limitation:** Validation was HTTP-based; no browser automation performed.
+
+---
+
 ### 2026-05-06: Bishop — ca-resolution Container App Deployed
 
 **By:** Bishop (AI/Agents Specialist)  
