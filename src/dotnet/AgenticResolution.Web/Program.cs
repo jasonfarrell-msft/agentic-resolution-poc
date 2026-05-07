@@ -25,10 +25,13 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddHttpClient<TicketApiClient>(client =>
 {
-    var baseUrl = builder.Configuration["ApiClient:BaseUrl"];
+    var baseUrl = FirstConfigured(
+        builder.Configuration["TICKETS_API_URL"],
+        builder.Configuration["ApiBaseUrl"],
+        builder.Configuration["ApiClient:BaseUrl"]);
     if (!string.IsNullOrWhiteSpace(baseUrl))
     {
-        client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+        client.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
     }
 });
 builder.Services.AddHttpClient<ResolutionApiClient>(client =>
@@ -36,7 +39,7 @@ builder.Services.AddHttpClient<ResolutionApiClient>(client =>
     var baseUrl = builder.Configuration["ResolutionApi:BaseUrl"];
     if (!string.IsNullOrWhiteSpace(baseUrl))
     {
-        client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+        client.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
     }
     client.Timeout = TimeSpan.FromMinutes(5);
 });
@@ -56,8 +59,17 @@ app.UseCors();
 
 app.UseAntiforgery();
 
+app.MapMethods("/api/{**path}", ["GET", "POST", "PUT", "PATCH", "DELETE"], (string? path) =>
+    Results.Problem(
+        title: "API endpoint is not hosted by this web app.",
+        detail: $"Use the configured tickets API base URL for /api/{path}.",
+        statusCode: StatusCodes.Status404NotFound));
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static string? FirstConfigured(params string?[] values) =>
+    values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));

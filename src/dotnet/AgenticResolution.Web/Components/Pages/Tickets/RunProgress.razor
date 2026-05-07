@@ -2,7 +2,6 @@
 @using System.Text.Json
 @implements IDisposable
 @inject ResolutionApiClient ResolutionApi
-@inject NavigationManager Navigation
 
 <PageTitle>Resolving @Number — TicketNow</PageTitle>
 
@@ -21,11 +20,15 @@ else
     <div class="run-progress-header">
         <div>
             <h1>Resolving Ticket @Number</h1>
-            <p class="text-muted">AI-powered resolution in progress</p>
+            <p class="text-muted">@HeaderMessage</p>
         </div>
-        @if (HasTerminalState && !HasError)
+        @if (HasTerminalState && FinalOutcome == ResolutionOutcome.Resolved)
         {
-            <span class="badge bg-success">Complete</span>
+            <span class="badge bg-success">Resolved</span>
+        }
+        else if (HasTerminalState && FinalOutcome == ResolutionOutcome.Escalated)
+        {
+            <span class="badge bg-warning text-dark">Escalated</span>
         }
         else if (HasTerminalState)
         {
@@ -93,8 +96,13 @@ else
     else if (HasTerminalState)
     {
         <div class="final-card mt-3">
-            <h4>Resolution Complete</h4>
-            <p>Redirecting to ticket detail…</p>
+            <h4>@CompletionTitle</h4>
+            <p>@CompletionMessage</p>
+            @if (!string.IsNullOrWhiteSpace(FinalSummary))
+            {
+                <p class="text-muted small mb-3">@FinalSummary</p>
+            }
+            <a class="btn btn-primary" href="@DetailUrl">View Ticket Detail</a>
         </div>
     }
 }
@@ -108,6 +116,8 @@ else
     private bool HasTerminalState;
     private bool HasError;
     private string? ErrorMessage;
+    private ResolutionOutcome? FinalOutcome;
+    private string? FinalSummary;
     private CancellationTokenSource? _cts;
 
     protected override Task OnParametersSetAsync()
@@ -125,6 +135,8 @@ else
         HasTerminalState = false;
         HasError = false;
         ErrorMessage = null;
+        FinalOutcome = null;
+        FinalSummary = null;
         IsStarted = false;
 
         _ = StreamResolutionAsync(_cts.Token);
@@ -148,13 +160,7 @@ else
                 await InvokeAsync(StateHasChanged);
             }
 
-            if (HasTerminalState)
-            {
-                await InvokeAsync(StateHasChanged);
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
-                await InvokeAsync(() => Navigation.NavigateTo($"/tickets/{Number}"));
-            }
-            else if (!HasError)
+            if (!HasTerminalState && !HasError)
             {
                 HasError = true;
                 ErrorMessage = "The resolution stream ended before the workflow reported a terminal status.";
@@ -180,7 +186,12 @@ else
             : evt.DisplayMessage;
 
         Stages[evt.DisplayStage] = new StageState(evt.EffectiveStatus, evt.Timestamp, summary);
-        HasTerminalState |= evt.IsTerminal;
+        if (evt.IsTerminal)
+        {
+            HasTerminalState = true;
+            FinalOutcome = GetFinalOutcome(evt);
+            FinalSummary = summary ?? evt.DisplayMessage;
+        }
 
         if (evt.IsFailure)
         {
@@ -209,10 +220,41 @@ else
         _ => stage.Replace("_", " ").ToUpperInvariant()
     };
 
+    private string HeaderMessage => HasTerminalState
+        ? CompletionMessage
+        : "AI-powered resolution in progress";
+
+    private string CompletionTitle => FinalOutcome switch
+    {
+        ResolutionOutcome.Resolved => "Ticket Resolved",
+        ResolutionOutcome.Escalated => "Ticket Escalated",
+        _ => "Resolution Finished"
+    };
+
+    private string CompletionMessage => FinalOutcome switch
+    {
+        ResolutionOutcome.Resolved => "The resolver completed and marked the ticket as resolved.",
+        ResolutionOutcome.Escalated => "The resolver completed and escalated the ticket to a human specialist.",
+        _ => "The resolver completed. Review the ticket detail for the latest state."
+    };
+
+    private string DetailUrl => $"/tickets/{Uri.EscapeDataString(Number)}?refresh={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+
+    private static ResolutionOutcome GetFinalOutcome(ResolutionEvent evt)
+    {
+        if (evt.IsEscalated)
+        {
+            return ResolutionOutcome.Escalated;
+        }
+
+        return evt.IsResolved ? ResolutionOutcome.Resolved : ResolutionOutcome.Finished;
+    }
+
     private static string GetIndicatorClass(StageState state) => state.Status.ToLowerInvariant() switch
     {
         "started" => "step-running",
-        "completed" or "complete" or "resolved" or "succeeded" or "success" or "done" or "escalated" => "step-completed",
+        "escalated" => "step-escalated",
+        "completed" or "complete" or "resolved" or "succeeded" or "success" or "done" => "step-completed",
         "error" or "failed" or "failure" => "step-failed",
         _ => "step-pending"
     };
@@ -235,5 +277,11 @@ else
     }
 
     private sealed record StageState(string Status, string? Timestamp, string? ResultSummary);
-}
 
+    private enum ResolutionOutcome
+    {
+        Resolved,
+        Escalated,
+        Finished
+    }
+}

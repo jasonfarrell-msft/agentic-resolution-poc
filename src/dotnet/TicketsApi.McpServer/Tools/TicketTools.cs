@@ -60,12 +60,12 @@ public sealed class TicketTools
     [Description(
         "Lists IT support tickets, optionally filtered by state. Returns a paged result with items, " +
         "total count, and pagination info. " +
-        "Valid states: New, InProgress, OnHold, Resolved, Closed, Cancelled. " +
+        "Valid states: New, InProgress, OnHold, Resolved, Closed, Cancelled, Escalated. " +
         "Use this to find tickets needing triage, or to get a summary of open work.")]
     public static async Task<string> ListTicketsAsync(
         ITicketApiClient api,
         ILogger<TicketTools> logger,
-        [Description("Filter by ticket state. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled. Omit for all states.")]
+        [Description("Filter by ticket state. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled, Escalated. Omit for all states.")]
         string? state = null,
         [Description("Page number (1-based). Default: 1.")]
         int page = 1,
@@ -108,7 +108,7 @@ public sealed class TicketTools
         string query,
         ITicketApiClient api,
         ILogger<TicketTools> logger,
-        [Description("Optional state filter to narrow results. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled.")]
+        [Description("Optional state filter to narrow results. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled, Escalated.")]
         string? state = null,
         [Description("Max results to return (1–50). Default: 10.")]
         int page_size = 10,
@@ -145,7 +145,7 @@ public sealed class TicketTools
     public static async Task<string> UpdateTicketAsync(
         [Description("The ticket's unique GUID id — use the 'id' field from get_ticket_by_number output (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx). Do NOT use the ticket number like INC0010001.")]
         string ticket_id,
-        [Description("New state. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled.")]
+        [Description("New state. One of: New, InProgress, OnHold, Resolved, Closed, Cancelled, Escalated.")]
         string state,
         ITicketApiClient api,
         ILogger<TicketTools> logger,

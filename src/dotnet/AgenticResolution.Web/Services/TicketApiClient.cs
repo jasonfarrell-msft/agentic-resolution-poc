@@ -69,7 +69,8 @@ public sealed class TicketApiClient
         string number,
         CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.GetAsync($"api/tickets/{number}/details", cancellationToken);
+        var encodedNumber = Uri.EscapeDataString(number);
+        var response = await _httpClient.GetAsync($"api/tickets/{encodedNumber}/details", cancellationToken);
         return await ReadRequiredAsync<TicketDetailResponse>(response, cancellationToken);
     }
 
@@ -106,7 +107,25 @@ public sealed class TicketApiClient
 
     private static async Task<T> ReadRequiredAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
     {
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var detail = string.IsNullOrWhiteSpace(body)
+                ? response.ReasonPhrase
+                : body;
+            throw new HttpRequestException(
+                $"Tickets API returned {(int)response.StatusCode} for {response.RequestMessage?.RequestUri}: {detail}");
+        }
+
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var preview = body.Length > 300 ? body[..300] + "..." : body;
+            throw new HttpRequestException(
+                $"Tickets API returned {(int)response.StatusCode} with content type '{mediaType ?? "<none>"}' for {response.RequestMessage?.RequestUri}; expected application/json. Response preview: {preview}");
+        }
+
         var result = await response.Content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken);
         if (result is null)
         {
@@ -169,6 +188,10 @@ public sealed record TicketResponse
     public string? AssignedTo { get; init; }
     public string? Assignee { get; init; }
     public string? Caller { get; init; }
+    public string? ResolutionNotes { get; init; }
+    public string? AgentAction { get; init; }
+    public double? AgentConfidence { get; init; }
+    public string? MatchedTicketNumber { get; init; }
     public DateTime CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
 }
@@ -224,7 +247,8 @@ public enum TicketState
     OnHold = 2,
     Resolved = 3,
     Closed = 4,
-    Cancelled = 5
+    Cancelled = 5,
+    Escalated = 6
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

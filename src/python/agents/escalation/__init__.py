@@ -45,7 +45,7 @@ Steps:
 
 3. Call update_ticket with:
    - ticket_id: the GUID provided
-   - state: "InProgress"
+   - state: "Escalated"
    - assigned_to: the assignee email from the matrix
    - agent_action: "escalated_to_human"
    - agent_confidence: the confidence score that triggered escalation

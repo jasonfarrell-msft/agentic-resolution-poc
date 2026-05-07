@@ -12,6 +12,7 @@
         TicketState.Resolved => "state-resolved",
         TicketState.Closed => "state-closed",
         TicketState.Cancelled => "state-cancelled",
+        TicketState.Escalated => "state-escalated",
         _ => "state-closed"
     };
 
@@ -23,6 +24,7 @@
         TicketState.Resolved => "Resolved",
         TicketState.Closed => "Closed",
         TicketState.Cancelled => "Cancelled",
+        TicketState.Escalated => "Escalated",
         _ => State.ToString()
     };
 }

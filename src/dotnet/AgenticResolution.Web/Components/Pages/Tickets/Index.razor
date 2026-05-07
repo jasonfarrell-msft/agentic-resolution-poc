@@ -134,13 +134,14 @@ else
         TicketState.InProgress,
         TicketState.OnHold,
         TicketState.Resolved,
+        TicketState.Escalated,
         TicketState.Closed,
         TicketState.Cancelled
     ];
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        _ = LoadTicketsAsync();
+        await LoadTicketsAsync();
     }
 
     private async Task LoadTicketsAsync()

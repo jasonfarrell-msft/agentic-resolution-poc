@@ -14,12 +14,13 @@ public enum TicketPriority
 
 public enum TicketState
 {
-    New,
-    InProgress,
-    OnHold,
-    Resolved,
-    Closed,
-    Cancelled
+    New = 0,
+    InProgress = 1,
+    OnHold = 2,
+    Resolved = 3,
+    Closed = 4,
+    Cancelled = 5,
+    Escalated = 6
 }
 
 public class Ticket

@@ -180,11 +180,18 @@ public sealed record ResolutionEvent
         Error ?? Message ?? FirstText(null, AdditionalData, "detail", "message", "error");
 
     public bool IsTerminal =>
-        IsTerminalStatus(EffectiveStatus) ||
-        (AdditionalData?.TryGetValue("terminal", out var terminal) == true &&
-            terminal.ValueKind is JsonValueKind.True);
+        HasTerminalFlag ||
+        IsTerminalStatus(EffectiveStatus);
 
     public bool IsFailure => IsFailureStatus(EffectiveStatus);
+
+    public bool IsResolved => Normalize(EffectiveStatus) is "resolved" or "success" or "succeeded";
+
+    public bool IsEscalated => Normalize(EffectiveStatus) is "escalated";
+
+    private bool HasTerminalFlag =>
+        AdditionalData?.TryGetValue("terminal", out var terminal) == true &&
+        terminal.ValueKind is JsonValueKind.True;
 
     private static string? FirstText(string? preferred, IReadOnlyDictionary<string, JsonElement>? additionalData, params string[] names)
     {
@@ -214,7 +221,7 @@ public sealed record ResolutionEvent
     }
 
     private static bool IsTerminalStatus(string status) =>
-        Normalize(status) is "complete" or "completed" or "done" or "resolved" or "success" or "succeeded" or "escalated" or "failed" or "failure" or "error" or "finished" or "finish";
+        Normalize(status) is "resolved" or "escalated" or "failed" or "failure" or "error";
 
     private static bool IsFailureStatus(string status) =>
         Normalize(status) is "failed" or "failure" or "error";

@@ -34,6 +34,7 @@ else if (Details is null)
     <div class="empty-state">
         <h4>Ticket not found.</h4>
         <p>Return to the ticket list to continue.</p>
+        <a class="btn btn-outline-secondary" href="/tickets" aria-label="Back to ticket list">Back to ticket list</a>
     </div>
 }
 else
@@ -46,8 +47,15 @@ else
                 <div class="summary-pill">
                     <span class="summary-label">Status</span>
                     <span class="summary-value">
-                        <StateBadge State="Details.Ticket.State" />
-                        @if (HasDistinctStatus(Details.Ticket))
+                        @if (IsEscalated(Details.Ticket))
+                        {
+                            <span class="badge badge-pill run-status run-escalated">Escalated</span>
+                        }
+                        else
+                        {
+                            <StateBadge State="Details.Ticket.State" />
+                        }
+                        @if (!IsEscalated(Details.Ticket) && HasDistinctStatus(Details.Ticket))
                         {
                             <span class="summary-secondary">@Details.Ticket.Status</span>
                         }
@@ -59,12 +67,15 @@ else
                 </div>
             </div>
         </div>
-        @if (CanResolve)
-        {
-            <button class="btn btn-primary" @onclick="ResolveTicketAsync">
-                Resolve with AI
-            </button>
-        }
+        <div class="d-flex flex-wrap gap-2 justify-content-end">
+            <a class="btn btn-outline-secondary" href="/tickets" aria-label="Back to ticket list">← Back to ticket list</a>
+            @if (CanResolve)
+            {
+                <a class="btn btn-primary" href="@ResolveUrl">
+                    Resolve with AI
+                </a>
+            }
+        </div>
     </div>
 
     <div class="detail-grid mb-4">
@@ -157,6 +168,10 @@ else
             </div>
         }
     </div>
+
+    <div class="mt-4">
+        <a class="btn btn-outline-secondary" href="/tickets" aria-label="Back to ticket list">← Back to ticket list</a>
+    </div>
 }
 
 @code {
@@ -168,13 +183,12 @@ else
     private string? ErrorMessage;
     private CancellationTokenSource? _loadCts;
 
-    protected override Task OnParametersSetAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        StartLoadingDetails();
-        return Task.CompletedTask;
+        await StartLoadingDetailsAsync();
     }
 
-    private void StartLoadingDetails()
+    private async Task StartLoadingDetailsAsync()
     {
         _loadCts?.Cancel();
         _loadCts?.Dispose();
@@ -184,7 +198,7 @@ else
         Details = null;
         ErrorMessage = null;
 
-        _ = LoadDetailsAsync(Number, _loadCts.Token);
+        await LoadDetailsAsync(Number, _loadCts.Token);
     }
 
     private async Task LoadDetailsAsync(string number, CancellationToken cancellationToken)
@@ -192,7 +206,6 @@ else
         if (!ApiClient.IsConfigured)
         {
             IsLoading = false;
-            await InvokeAsync(StateHasChanged);
             return;
         }
 
@@ -213,7 +226,6 @@ else
             if (!cancellationToken.IsCancellationRequested)
             {
                 IsLoading = false;
-                await InvokeAsync(StateHasChanged);
             }
         }
     }
@@ -231,14 +243,11 @@ else
     private bool CanResolve =>
         Details?.Ticket.State is TicketState.New or TicketState.InProgress;
 
-    private void ResolveTicketAsync()
-    {
-        Navigation.NavigateTo($"/tickets/{Number}/resolve");
-    }
+    private string ResolveUrl => $"/tickets/{Uri.EscapeDataString(Number)}/resolve";
 
-    private void RetryLoad()
+    private async Task RetryLoad()
     {
-        StartLoadingDetails();
+        await StartLoadingDetailsAsync();
     }
 
     private static string GetAssignee(TicketResponse ticket) =>
@@ -256,6 +265,10 @@ else
         var state = ticket.State.ToString().Replace("InProgress", "In Progress", StringComparison.Ordinal);
         return !ticket.Status.Equals(state, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsEscalated(TicketResponse ticket) =>
+        ticket.AgentAction?.Equals("escalated_to_human", StringComparison.OrdinalIgnoreCase) == true ||
+        ticket.Status?.Equals("Escalated", StringComparison.OrdinalIgnoreCase) == true;
 
     public void Dispose()
     {

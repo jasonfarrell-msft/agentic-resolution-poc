@@ -25,6 +25,7 @@
     --state-resolved: var(--sn-green);
     --state-closed: var(--sn-gray-600);
     --state-cancelled: var(--sn-red);
+    --state-escalated: var(--sn-yellow);
     --run-pending: var(--sn-gray-200);
     --run-running: var(--sn-teal);
     --run-completed: var(--sn-green);
@@ -401,6 +402,11 @@ a {
 .state-badge.state-cancelled {
     background-color: var(--sn-red);
     color: #fff;
+}
+
+.state-badge.state-escalated {
+    background-color: var(--sn-yellow);
+    color: var(--sn-gray-900);
 }
 
 .run-status.run-pending {

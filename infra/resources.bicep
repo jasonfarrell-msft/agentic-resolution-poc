@@ -6,6 +6,12 @@ param tags object
 @description('Deploy backend resources (Container Apps, ACR, etc.) - defaults to false')
 param deployBackend bool = false
 
+@description('External URL for the .NET tickets CRUD API used by the Blazor frontend.')
+param ticketsApiBaseUrl string = 'https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io'
+
+@description('External URL for the Python Resolution API used by the Blazor frontend.')
+param resolutionApiBaseUrl string = 'https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io'
+
 // ========================================
 // FRONTEND: App Service for Blazor Web
 // ========================================
@@ -42,7 +48,15 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
       appSettings: [
         {
           name: 'ApiClient__BaseUrl'
-          value: '' // Jason will populate this later with the Container App API URL
+          value: ticketsApiBaseUrl
+        }
+        {
+          name: 'ApiBaseUrl'
+          value: ticketsApiBaseUrl
+        }
+        {
+          name: 'ResolutionApi__BaseUrl'
+          value: resolutionApiBaseUrl
         }
         {
           name: 'ASPNETCORE_ENVIRONMENT'
