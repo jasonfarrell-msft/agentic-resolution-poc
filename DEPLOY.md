@@ -61,9 +61,9 @@ The `Setup-Solution.ps1` script provides a complete deployment experience that h
 
 | Resource | Purpose |
 |----------|---------|
-| Azure SQL Server | Hosts the `agenticresolution` database |
+| Azure SQL Server | Hosts the `agenticresolution` database with Entra-only authentication |
 | Azure SQL Database | Stores tickets, KB articles, comments |
-| Azure Key Vault | Stores SQL connection string and secrets |
+| Azure Key Vault | Stores SQL connection string (Entra auth) and secrets |
 | App Service Plan (B1) | Linux-based hosting for Blazor web app |
 | App Service | Blazor frontend with managed identity |
 | Container Apps Environment | Hosts Container Apps |
@@ -72,16 +72,20 @@ The `Setup-Solution.ps1` script provides a complete deployment experience that h
 | Python Resolution API Container App | AI-powered ticket resolution service |
 | Managed Identities | System/user-assigned identities for secure access |
 | Role Assignments | AcrPull, Key Vault Secrets User, etc. |
+| SQL Database Users | Managed identity users with appropriate roles (db_owner for API, read/write for Web App) |
 
 ### Initial Setup Flow
 
 When you run `Setup-Solution.ps1` for the first time, it will:
 - Check that Azure CLI, azd, and .NET SDK are installed and authenticated
-- Prompt for SQL administrator password (or read from `$env:SQL_ADMIN_PASSWORD`)
-- Call `azd up` to provision foundation resources
+- Discover the currently signed-in Azure CLI user to configure as SQL Entra admin
+- Call `azd up` to provision foundation resources (SQL with Entra-only auth)
 - Provision Container Apps infrastructure and build container images
+- Create database users for managed identities with appropriate permissions
 - Reset tickets to New/unassigned baseline state
 - Optionally seed 5 demo tickets
+
+**SQL Authentication:** The solution uses Entra (Azure AD) authentication exclusively. The currently signed-in Azure CLI user is configured as the SQL Server admin, and managed identities are granted database access. This ensures compliance with Azure security policies like MCAPS `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`.
 
 See [Setup Guide](SETUP.md) for details and examples.
 

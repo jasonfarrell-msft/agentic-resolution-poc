@@ -5,19 +5,26 @@
 
 .DESCRIPTION
     This script performs a complete deployment including:
-    - Infrastructure provisioning (Azure SQL, Key Vault, App Service, ACR, Container Apps)
+    - Infrastructure provisioning (Azure SQL with Entra-only auth, Key Vault, App Service, ACR, Container Apps)
     - Container image builds and pushes (.NET API, Python Resolution API)
     - Role assignments (managed identities, Key Vault access, ACR pull)
-    - Secret configuration (SQL connection strings, admin API keys)
+    - Database user creation for managed identities (appropriate permissions)
+    - Secret configuration (SQL connection strings with Entra auth, admin API keys)
     - Database migrations (automatic on first API startup)
     - Data reset (all tickets to New/unassigned)
     - Optional sample data seeding
+
+    SQL Authentication:
+    - Uses Entra (Azure AD) authentication exclusively - no SQL passwords
+    - Currently signed-in Azure CLI user becomes SQL Server Entra admin
+    - Managed identities granted database access with appropriate roles:
+      * API identity: db_owner (required for EF migrations on startup)
+      * Web App identity: db_datareader + db_datawriter
 
     Prerequisites:
     - Azure CLI authenticated (az login)
     - Azure Developer CLI installed (azd)
     - User principal with Contributor + User Access Administrator roles
-    - SQL administrator password set (via env var or interactive prompt)
     - Docker not required (uses az acr build in the cloud)
 
 .PARAMETER Environment
@@ -25,9 +32,6 @@
 
 .PARAMETER Location
     Azure region for deployment. Default: eastus2
-
-.PARAMETER SqlAdminPassword
-    SQL Server administrator password. If not provided, will prompt interactively.
 
 .PARAMETER SeedSampleTickets
     Deprecated — sample tickets are now always seeded during setup. Use -SkipDataReset to skip all data operations.
@@ -43,10 +47,6 @@
     
 .EXAMPLE
     .\Setup-Solution.ps1 -Environment "dev" -Location "eastus2" -SeedSampleTickets
-    
-.EXAMPLE
-    $env:SQL_ADMIN_PASSWORD = "YourSecurePassword123!"
-    .\Setup-Solution.ps1 -SeedSampleTickets
 #>
 
 [CmdletBinding()]
@@ -56,9 +56,6 @@ param(
     
     [Parameter(Mandatory = $false)]
     [string]$Location = "eastus2",
-    
-    [Parameter(Mandatory = $false)]
-    [SecureString]$SqlAdminPassword,
     
     [Parameter(Mandatory = $false)]
     [switch]$SeedSampleTickets,
@@ -72,6 +69,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$env:PYTHONIOENCODING = 'utf-8'
+$env:PYTHONUTF8 = '1'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 Write-Host "`n╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "║       Agentic Resolution - Single-Command Setup              ║" -ForegroundColor Cyan
@@ -138,32 +138,33 @@ catch {
 
 Write-Host ""
 
-# Get or prompt for SQL password
-if (-not $SqlAdminPassword) {
-    if ($env:SQL_ADMIN_PASSWORD) {
-        Write-Host "Using SQL password from environment variable SQL_ADMIN_PASSWORD" -ForegroundColor Cyan
-        $SqlAdminPassword = ConvertTo-SecureString $env:SQL_ADMIN_PASSWORD -AsPlainText -Force
-    } else {
-        Write-Host "SQL Administrator password is required for Azure SQL Server." -ForegroundColor Yellow
-        Write-Host "Password requirements: 12+ characters, mixed case, numbers, special characters`n" -ForegroundColor Gray
-        $SqlAdminPassword = Read-Host "Enter SQL administrator password" -AsSecureString
-        $confirmPassword = Read-Host "Confirm password" -AsSecureString
-        
-        $pwd1 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($SqlAdminPassword))
-        $pwd2 = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($confirmPassword))
-        
-        if ($pwd1 -ne $pwd2) {
-            Write-Error "Passwords do not match."
-            exit 1
-        }
-        Write-Host ""
+# Get current Azure user for SQL Entra admin
+Write-Host "Discovering current Azure user for SQL Entra admin..." -ForegroundColor Cyan
+try {
+    $currentUser = az ad signed-in-user show 2>$null | ConvertFrom-Json
+    if (-not $currentUser) {
+        throw "Could not retrieve signed-in user"
     }
+
+    $entraAdminLogin = $currentUser.userPrincipalName
+    if (-not $entraAdminLogin) {
+        $entraAdminLogin = $currentUser.displayName
+    }
+    $entraAdminObjectId = $currentUser.id
+
+    Write-Host "✓ Entra Admin Login: $entraAdminLogin" -ForegroundColor Green
+    Write-Host "✓ Entra Admin Object ID: $entraAdminObjectId" -ForegroundColor Green
+
+    # Get tenant ID from account
+    $tenantId = $account.tenantId
+    Write-Host "✓ Entra Admin Tenant ID: $tenantId" -ForegroundColor Green
+}
+catch {
+    Write-Error "Failed to retrieve current Azure user. Ensure you are logged in with 'az login'."
+    exit 1
 }
 
-# Set environment variable for azd
-$BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SqlAdminPassword)
-$plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-$env:SQL_ADMIN_PASSWORD = $plainPassword
+Write-Host ""
 
 # Generate ephemeral admin API key for setup session
 $adminApiKey = [System.Guid]::NewGuid().ToString()
@@ -184,6 +185,28 @@ if ($Environment) {
 }
 if ($Location) {
     $azdArgs += @('--location', $Location)
+}
+
+# Persist infrastructure parameters into azd environment config for Bicep parameter resolution
+Write-Host "Configuring infrastructure parameters in azd environment..." -ForegroundColor Cyan
+$infraParameters = @{
+    environmentName = $Environment
+    entraAdminLogin = $entraAdminLogin
+    entraAdminObjectId = $entraAdminObjectId
+    entraAdminTenantId = $tenantId
+}
+
+foreach ($parameter in $infraParameters.GetEnumerator()) {
+    if ([string]::IsNullOrWhiteSpace($parameter.Value)) {
+        continue
+    }
+
+    $configKey = "infra.parameters.$($parameter.Key)"
+    azd env config set $configKey $parameter.Value
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to configure azd infrastructure parameter '$configKey'."
+        exit $LASTEXITCODE
+    }
 }
 
 Write-Host "Running: azd $($azdArgs -join ' ')" -ForegroundColor Cyan
@@ -213,7 +236,7 @@ if (-not $SkipContainerApps) {
     $envVars = @{}
     foreach ($line in $azdEnvOutput -split "`n") {
         if ($line -match '^([^=]+)=(.*)$') {
-            $envVars[$Matches[1]] = $Matches[2].Trim('"')
+            $envVars[$Matches[1].Trim()] = $Matches[2].Trim().Trim('"')
         }
     }
     
@@ -294,6 +317,7 @@ if (-not $SkipContainerApps) {
             --image api:latest `
             --file src/dotnet/AgenticResolution.Api/Dockerfile `
             src/dotnet/AgenticResolution.Api `
+            --no-logs `
             --only-show-errors
         
         if ($LASTEXITCODE -ne 0) {
@@ -320,13 +344,25 @@ if (-not $SkipContainerApps) {
             --image resolution:latest `
             --file src/python/resolution_api/Dockerfile `
             src/python `
+            --no-logs `
             --only-show-errors
         
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to build Python Resolution API container image"
-            exit $LASTEXITCODE
+            $existingResolutionImage = az acr repository show-tags `
+                --name $acrName `
+                --repository resolution `
+                --query "[?@=='latest'] | [0]" `
+                -o tsv 2>$null
+
+            if ($existingResolutionImage) {
+                Write-Warning "Failed to rebuild Python Resolution API image; continuing with existing resolution:latest image."
+            } else {
+                Write-Error "Failed to build Python Resolution API container image"
+                exit $LASTEXITCODE
+            }
+        } else {
+            Write-Host "✓ Python Resolution API image built and pushed" -ForegroundColor Green
         }
-        Write-Host "✓ Python Resolution API image built and pushed" -ForegroundColor Green
     } finally {
         Pop-Location
     }
@@ -394,11 +430,11 @@ if (-not $SkipContainerApps) {
             Start-Sleep -Seconds 5
         }
         
-        # If still not available, construct from azd outputs
+        # If still not available, construct from azd outputs (Entra auth)
         if (-not $sqlConnString) {
             $sqlServerFqdn = $envVars['SQL_SERVER_FQDN']
             $sqlDbName = $envVars['SQL_DATABASE_NAME']
-            $sqlConnString = "Server=tcp:$sqlServerFqdn,1433;Initial Catalog=$sqlDbName;Persist Security Info=False;User ID=sqladmin;Password=$plainPassword;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+            $sqlConnString = "Server=tcp:$sqlServerFqdn,1433;Initial Catalog=$sqlDbName;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
         }
     }
     
@@ -408,13 +444,23 @@ if (-not $SkipContainerApps) {
     $existingApiApp = az containerapp show --name $apiAppName --resource-group $resourceGroup 2>$null
     if ($existingApiApp) {
         Write-Host "  Updating existing Container App..." -ForegroundColor Gray
-        
+
+        az containerapp secret set `
+            --name $apiAppName `
+            --resource-group $resourceGroup `
+            --secrets "sql-connection-string=$sqlConnString" `
+            --only-show-errors
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to update .NET API Container App secrets"
+            exit $LASTEXITCODE
+        }
+
         az containerapp update `
             --name $apiAppName `
             --resource-group $resourceGroup `
             --image $apiImageName `
-            --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" "AdminEndpoints__Enabled=true" "AdminEndpoints__ApiKey=$adminApiKey" "AZURE_CLIENT_ID=$apiIdentityClientId" `
-            --secrets "sql-connection-string=$sqlConnString" `
+            --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" "ConnectionStrings__Default=secretref:sql-connection-string" "AdminEndpoints__Enabled=true" "AdminEndpoints__ApiKey=$adminApiKey" "AZURE_CLIENT_ID=$apiIdentityClientId" `
             --only-show-errors
     } else {
         az containerapp create `
@@ -447,7 +493,7 @@ if (-not $SkipContainerApps) {
     
     # 2.6: Create Python Resolution API Container App
     Write-Host "`nCreating Python Resolution API Container App..." -ForegroundColor Cyan
-    $resolutionAppName = "ca-resolution-$envName"
+    $resolutionAppName = "ca-res-$envName"
     
     # Create user-assigned managed identity for Resolution API
     $resolutionIdentityName = "id-resolution-$envName"
@@ -523,13 +569,36 @@ if (-not $SkipContainerApps) {
         --resource-group $resourceGroup `
         --settings "ApiClient__BaseUrl=$apiUrl" "ApiBaseUrl=$apiUrl" "ResolutionApi__BaseUrl=$resolutionUrl" `
         --only-show-errors | Out-Null
-    
+
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✓ Web App configuration updated with new API URLs" -ForegroundColor Green
     } else {
         Write-Warning "Failed to update Web App configuration. You may need to update manually."
     }
+
+    # 2.8: Configure SQL Database Users for Managed Identities
+    # Get SQL server details
+    $sqlServerFqdn = $envVars['SQL_SERVER_FQDN']
+    $sqlDbName = $envVars['SQL_DATABASE_NAME']
+
+    # Call dedicated script to configure database users
+    $configureDbScript = Join-Path $PSScriptRoot "Configure-DatabaseUsers.ps1"
     
+    try {
+        & $configureDbScript `
+            -ServerFqdn $sqlServerFqdn `
+            -DatabaseName $sqlDbName `
+            -ApiIdentityName $apiIdentityName `
+            -WebAppIdentityName $webAppName
+    }
+    catch {
+        Write-Warning "Failed to configure database users: $_"
+        Write-Host "You may need to manually configure database users via Azure Portal Query Editor." -ForegroundColor Yellow
+        Write-Host "Required users:" -ForegroundColor Yellow
+        Write-Host "  • $apiIdentityName : db_owner" -ForegroundColor Gray
+        Write-Host "  • $webAppName : db_datareader, db_datawriter" -ForegroundColor Gray
+    }
+
 } else {
     Write-Host "`nSkipping Container Apps provisioning (SkipContainerApps specified)" -ForegroundColor Gray
 }
@@ -547,11 +616,11 @@ if (-not $SkipDataReset) {
         # Try to get from azd environment
         $azdEnv = azd env get-values | Out-String
         if ($azdEnv -match 'API_BASE_URL=(.+)') {
-            $apiUrl = $Matches[1].Trim('"')
+            $apiUrl = $Matches[1].Trim().Trim('"')
             Write-Host "Using API URL from azd environment: $apiUrl" -ForegroundColor Cyan
         }
         elseif ($azdEnv -match 'TICKETS_API_URL=(.+)') {
-            $apiUrl = $Matches[1].Trim('"')
+            $apiUrl = $Matches[1].Trim().Trim('"')
             Write-Host "Using API URL from azd environment: $apiUrl" -ForegroundColor Cyan
         }
     }
@@ -629,7 +698,7 @@ Write-Host "`nNext Steps:" -ForegroundColor Yellow
 Write-Host "  • View web app: " -NoNewline -ForegroundColor Gray
 $webHost = azd env get-values | Select-String "WEB_APP_HOSTNAME" | ForEach-Object { $_ -replace 'WEB_APP_HOSTNAME=', '' } | Select-Object -First 1
 if ($webHost) {
-    Write-Host "https://$($webHost.Trim('"'))" -ForegroundColor Cyan
+    Write-Host "https://$($webHost.Trim().Trim('"'))" -ForegroundColor Cyan
 }
 
 if (-not $SkipContainerApps) {

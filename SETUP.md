@@ -19,34 +19,30 @@ This single command provisions all infrastructure, builds containers, configures
   - These roles are required to create resources and assign RBAC permissions
   - If unsure, contact your subscription owner or run `az role assignment list --scope /subscriptions/<your-subscription-id>`
 
+**Note:** The setup script automatically configures the currently signed-in Azure CLI user as the SQL Server Entra admin. This enables Entra-only authentication (no SQL passwords) and compliance with Azure security policies like MCAPS `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`.
+
 ## What the Command Does
 
 1. **Validates prerequisites** — Checks Azure CLI, azd, .NET SDK, and authentication status
-2. **Prompts for SQL password** — Or reads from `$env:SQL_ADMIN_PASSWORD` if set
-3. **Provisions foundation infrastructure** — Azure SQL, Key Vault, and App Service via `azd up`
+2. **Discovers current Azure user** — Uses `az ad signed-in-user` to get your Entra admin credentials
+3. **Provisions foundation infrastructure** — Azure SQL (Entra-only auth), Key Vault, and App Service via `azd up`
 4. **Builds and pushes containers** — .NET Tickets API and Python Resolution API images to ACR
 5. **Creates container apps** — Both APIs deployed with managed identities
-6. **Configures secrets and roles** — SQL connection string stored in Key Vault, RBAC permissions assigned
-7. **Resets database** — All tickets set to New/unassigned baseline state
-8. **Optionally seeds sample data** — 5 demo tickets (with `-SeedSampleTickets` flag)
+6. **Configures database access** — Creates database users for managed identities with appropriate permissions
+7. **Configures secrets and roles** — SQL connection string (Entra auth) stored in Key Vault, RBAC permissions assigned
+8. **Resets database** — All tickets set to New/unassigned baseline state
+9. **Optionally seeds sample data** — 5 demo tickets (with `-SeedSampleTickets` flag)
 
-**Disabled by default:** Admin endpoints are protected during deployment; an ephemeral API key is generated per run and used internally for data reset.
+**Key Security Features:**
+- **Entra-only authentication:** Azure SQL Server configured with Entra (Azure AD) authentication only — no SQL passwords
+- **Current user as admin:** The Azure CLI signed-in user becomes the SQL Server admin for setup and management
+- **Managed identities:** API and Web App use managed identities to access SQL and Key Vault
+- **Least privilege (with caveats):** API identity gets `db_owner` role because it runs EF migrations on startup; in production, consider separating migration and runtime identities
 
 ## Usage Examples
 
-### Basic setup with password prompt
+### Basic setup with sample data (recommended for first-time setup)
 ```powershell
-.\scripts\Setup-Solution.ps1
-```
-
-### Setup with sample data (recommended for first-time setup)
-```powershell
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
-```
-
-### Setup with environment variable password (CI/CD)
-```powershell
-$env:SQL_ADMIN_PASSWORD = "YourSecurePassword123!"
 .\scripts\Setup-Solution.ps1 -SeedSampleTickets
 ```
 

@@ -1,20 +1,27 @@
 param name string
 param location string
 param tags object = {}
-param administratorLogin string
-@secure()
-param administratorLoginPassword string
 param allowAzureServices bool = true
+
+// Entra-only authentication parameters
+param entraAdminLogin string
+param entraAdminObjectId string
+param entraAdminTenantId string
 
 resource sqlServer 'Microsoft.Sql/servers@2023-05-01-preview' = {
   name: name
   location: location
   tags: tags
   properties: {
-    administratorLogin: administratorLogin
-    administratorLoginPassword: administratorLoginPassword
     minimalTlsVersion: '1.2'
     publicNetworkAccess: 'Enabled'
+    administrators: {
+      administratorType: 'ActiveDirectory'
+      login: entraAdminLogin
+      sid: entraAdminObjectId
+      tenantId: entraAdminTenantId
+      azureADOnlyAuthentication: true
+    }
   }
 }
 

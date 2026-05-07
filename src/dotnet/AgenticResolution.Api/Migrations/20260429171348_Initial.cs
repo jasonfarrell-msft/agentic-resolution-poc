@@ -44,10 +44,10 @@ public partial class Initial : Migration
                 table.PrimaryKey("PK_Tickets", x => x.Id);
             });
 
-        migrationBuilder.InsertData(
-            table: "TicketNumberSequences",
-            columns: ["Id", "LastValue"],
-            values: new object[] { 1, 10000L });
+        migrationBuilder.Sql("""
+            INSERT INTO [TicketNumberSequences] ([Id], [LastValue])
+            VALUES (1, 10000);
+            """);
 
         migrationBuilder.CreateIndex("IX_Tickets_CreatedAt", "Tickets", "CreatedAt");
         migrationBuilder.CreateIndex("IX_Tickets_Number", "Tickets", "Number", unique: true);

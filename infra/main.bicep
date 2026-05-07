@@ -12,12 +12,14 @@ param location string = 'eastus2'
 @description('Id of the user or app to assign application roles')
 param principalId string = ''
 
-@description('SQL Server administrator login')
-param sqlAdminLogin string = 'sqladmin'
+@description('Entra admin login (display name or UPN)')
+param entraAdminLogin string
 
-@secure()
-@description('SQL Server administrator password')
-param sqlAdminPassword string
+@description('Entra admin object ID (GUID)')
+param entraAdminObjectId string
+
+@description('Entra admin tenant ID (GUID)')
+param entraAdminTenantId string
 
 // Tags applied to all resources
 var tags = {
@@ -40,8 +42,9 @@ module resources './resources.bicep' = {
     location: location
     principalId: principalId
     tags: tags
-    sqlAdminLogin: sqlAdminLogin
-    sqlAdminPassword: sqlAdminPassword
+    entraAdminLogin: entraAdminLogin
+    entraAdminObjectId: entraAdminObjectId
+    entraAdminTenantId: entraAdminTenantId
   }
 }
 

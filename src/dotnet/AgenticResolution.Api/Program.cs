@@ -29,8 +29,21 @@ if (!string.IsNullOrWhiteSpace(kvUri))
     }
 }
 
+string connectionString = builder.Configuration.GetConnectionString("Default") ?? string.Empty;
+
+// Log authentication mode for diagnostics
+bool usesEntraAuth = connectionString.Contains("Authentication=Active Directory", StringComparison.OrdinalIgnoreCase);
+if (usesEntraAuth)
+{
+    Console.WriteLine("[Startup] SQL connection configured for Entra authentication (managed identity / Azure CLI credentials)");
+}
+else if (!connectionString.Contains("(placeholder)", StringComparison.OrdinalIgnoreCase))
+{
+    Console.WriteLine("[Startup] SQL connection uses traditional authentication");
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("Default"))
+    options.UseSqlServer(connectionString)
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddScoped<ITicketNumberGenerator, TicketNumberGenerator>();
@@ -51,8 +64,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    string connStr = builder.Configuration.GetConnectionString("Default") ?? string.Empty;
-    if (!connStr.Contains("(placeholder)", StringComparison.OrdinalIgnoreCase))
+    if (!connectionString.Contains("(placeholder)", StringComparison.OrdinalIgnoreCase))
     {
         try
         {

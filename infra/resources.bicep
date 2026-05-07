@@ -12,12 +12,14 @@ param ticketsApiBaseUrl string = ''
 @description('URL for the Python Resolution API used by the Blazor frontend. Setup-Solution.ps1 configures this after creating the Resolution Container App.')
 param resolutionApiBaseUrl string = ''
 
-@description('SQL Server administrator login')
-param sqlAdminLogin string = 'sqladmin'
+@description('Entra admin login (display name or UPN)')
+param entraAdminLogin string
 
-@secure()
-@description('SQL Server administrator password - must be passed securely')
-param sqlAdminPassword string
+@description('Entra admin object ID (GUID)')
+param entraAdminObjectId string
+
+@description('Entra admin tenant ID (GUID)')
+param entraAdminTenantId string
 
 // ========================================
 // CORE INFRASTRUCTURE: Key Vault + SQL
@@ -42,8 +44,9 @@ module sqlServer './modules/sqlserver.bicep' = {
     name: sqlServerName
     location: location
     tags: tags
-    administratorLogin: sqlAdminLogin
-    administratorLoginPassword: sqlAdminPassword
+    entraAdminLogin: entraAdminLogin
+    entraAdminObjectId: entraAdminObjectId
+    entraAdminTenantId: entraAdminTenantId
     allowAzureServices: true
   }
 }
@@ -53,12 +56,12 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
-// Store SQL connection string in Key Vault
+// Store SQL connection string in Key Vault (Entra auth - no password)
 resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   name: 'sql-connection-string'
   parent: kv
   properties: {
-    value: 'Server=tcp:${sqlServer.outputs.serverFqdn},1433;Initial Catalog=${sqlServer.outputs.databaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+    value: 'Server=tcp:${sqlServer.outputs.serverFqdn},1433;Initial Catalog=${sqlServer.outputs.databaseName};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
   }
   dependsOn: [keyVault]
 }
