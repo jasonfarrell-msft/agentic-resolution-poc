@@ -21,6 +21,30 @@
 
 **Questions pending:** .NET 9 or 8 LTS? Docker ready on all machines or need LocalDB fallback? Ticket # format confirmed?
 
+## Core Context
+
+**Phase 1 (2026-04-29):**
+- Single Blazor Server project with minimal API
+- POST /api/tickets CRUD endpoint; webhook dispatch with HMAC-SHA256 and 3 retries
+- SQL Server (EF Core code-first); ticket counter seeded at INC0010001
+- Gitignore baseline added (2026-05-04)
+
+**Phase 2 (2026-05-05+):**
+- Decomposed: .NET API remains CRUD-only; Python Resolution API handles orchestration
+- Deleted: AgentOrchestrationService, ResolutionRunnerService, all workflow endpoints
+- Backend API kept minimal (ServiceNow mock contract)
+- Python/Foundry agents now own resolution logic
+
+**Current state (2026-05-07):**
+- ✅ ca-api Container App deployed and healthy
+- ✅ GET /api/tickets?page=1&pageSize=1 returns 200 JSON with 98 paged records
+- ✅ Routing verified: `/api/tickets` on ca-api (CRUD), `/tickets` on App Service (UI)
+- ✅ App Service settings fixed: ApiClient__BaseUrl and ResolutionApi__BaseUrl set
+- ✅ TicketApiClient hardened against HTML responses
+- ✅ dotnet build passes; ready for deployment
+
+---
+
 ## Learnings
 
 - **Validation:** DataAnnotations + a generic `ValidationFilter<T>` endpoint filter. In-box, no extra dep, swap-out is cheap if Phase 2 needs FluentValidation.

@@ -18,6 +18,28 @@
 
 **Questions pending:** Ticket number format? Enum vs free-text categories? .NET 9 or 8?
 
+## Core Context
+
+**Phase 1 (2026-04-29):**
+- Single-project Blazor Server (.NET 10) at `src/AgenticResolution.Web/`
+- Routes: `/tickets` (list), `/tickets/{number}` (detail), `/tickets/new` (form)
+- TicketApiClient wraps REST calls to ticket CRUD endpoint
+- Built successfully; no deployment
+
+**Phase 2 (2026-05-06):**
+- Blazor integration with Python Resolution API (SSE stream consumption)
+- Resolution streaming route with terminal event detection
+- Instant navigation with loading indicators
+- API client hardened against HTML-as-JSON responses
+
+**Current state (2026-05-07):**
+- ✅ Ticket loading restored: TICKETS_API_URL environment variable prioritized over ApiClient:BaseUrl config
+- ✅ Ticket list renders live tickets from ca-api (98 available)
+- ✅ Local builds pass; no Azure deployment yet
+- ✅ Routing verified: `/tickets` is UI route; CRUD API is ca-api `/api/tickets`
+
+---
+
 ## Learnings
 
 - **2026-05-07 — Ticket list loading restored.**
