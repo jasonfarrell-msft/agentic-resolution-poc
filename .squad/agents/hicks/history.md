@@ -353,3 +353,61 @@ Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `h
 - **Validation:** GET /api/tickets/{number}/details shows persisted Resolved/Escalated statuses; INC0010102 resolved; INC0010103 escalated; INC0010104 resolver result confirmed
 - **Decision recorded:** `.squad/decisions.md` / "Hicks — Ticket Detail Final Status Contract" (2026-05-07)
 - **Status:** Live and verified
+
+---
+
+### 2026-05-07 — Secured Admin Endpoints & Data Seeding Orchestration
+
+**Session Outcome:** Single-command setup now includes secured data reset capability and sample ticket seeding.
+
+**Security Architecture Implemented:**
+1. **Configuration-Gated Admin Endpoints** — Disabled by default (`AdminEndpoints:Enabled=false`). Operators must explicitly enable in production (requires direct code/config change, not a flag toggle). Follows principle of least privilege.
+
+2. **API Key Authentication** — All admin requests require `X-Admin-Api-Key` header. Key read from configuration (`AdminEndpoints:ApiKey`). Recommended storage: Azure Key Vault secret or environment variable. No inline plaintext.
+
+3. **Custom AdminAuthMiddleware** — Centralized request validation before reaching endpoint. Returns:
+   - 401 Unauthorized: missing or invalid API key
+   - 403 Forbidden: admin endpoints disabled
+   - 200/success: valid key, endpoint processes request
+
+4. **Ephemeral Admin Keys** — `Setup-Solution.ps1` generates a random GUID per setup session. Key lives in environment variable during setup; not persisted to Key Vault or config files. Provides single-session authenticated reset without hardcoded credentials.
+
+5. **Endpoints Created:**
+   - POST `/api/admin/reset-data`: Bulk reset via `ExecuteUpdateAsync` (single SQL statement, efficient)
+     - Sets all tickets to State=New, AssignedTo=null
+     - Clears ResolutionNotes, AgentAction, AgentConfidence, MatchedTicketNumber
+     - Resets TicketNumberSequence to baseline (10000)
+     - Optional: Seeds 5 realistic demo tickets (staggered creation times)
+   - GET `/api/admin/health`: Database connectivity check (returns `{"status":"healthy"}`)
+
+6. **Sample Ticket Seeding** — 5 realistic demo tickets created on request:
+   - Email access on mobile (High priority)
+   - Printer not responding (Moderate priority)
+   - VPN drops intermittently (High priority)
+   - SharePoint access request (Low priority)
+   - Laptop running slow (Moderate priority)
+   All: State=New, AssignedTo=null, CreatedAt staggered 15-120 minutes ago
+
+**PowerShell Orchestration Scripts:**
+- `Reset-Data.ps1` — Standalone data reset utility; auto-discovers API URL from azd environment or accepts explicit parameter
+- `Setup-Solution.ps1` — Orchestration script integrating foundation deployment + Container Apps + data reset
+  - Generates ephemeral admin key (GUID)
+  - Waits for API health check (120s timeout, exponential backoff)
+  - Calls reset-data with `-SeedSampleTickets` flag (optional)
+
+**Test Coverage:**
+- `AdminAuthenticationTests` — 7 tests validating middleware behavior (401/403/200 responses, case sensitivity, empty header, health check bypass)
+- `AdminEndpointsTests` — 7 tests validating reset logic and health check
+
+**Key Learnings:**
+1. **Disabled by default is not enough** — Add authentication on top. Defense-in-depth pattern: both config gate AND API key auth. If someone misconfigures and enables the endpoint, it still requires the key.
+2. **Ephemeral keys work for internal tooling** — Not suitable for multi-user/long-lived APIs, but perfect for setup automation where each session is a discrete event. The key only exists in memory during setup; no audit trail needed across sessions.
+3. **ExecuteUpdateAsync is efficient** — Single SQL UPDATE statement beats load-then-update pattern. Critical for production resets involving large ticket volumes.
+4. **Middleware ordering matters** — AdminAuthMiddleware must run early, before routing. If placed after routing, invalid requests might still route to the endpoint.
+5. **Idempotent resets enable safe re-runs** — Setup script can retry data reset if first attempt times out. Idempotency prevents duplicate ticket removal.
+
+**Coordination Notes:**
+- Vasquez fixed test harness routing services; all 14 tests now pass
+- DevOps specialist integrated reset-data into orchestration script
+- Apone's secure Bicep foundation enables Key Vault secret storage for API keys (if persisted)
+- Bob documented reset capability in SETUP.md troubleshooting section

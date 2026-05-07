@@ -11,6 +11,7 @@ How to decide who handles what.
 | .NET APIs, EF Core, SQL schema, webhooks | Hicks | "Create the Tickets API", "Wire up the webhook on save", "Add a migration" |
 | Azure AI Search, Foundry Agents, Agent Framework | Bishop | "Design the search index", "Stand up the resolver agent" (Phase 2+) |
 | Tests (unit, integration, bUnit) | Vasquez | "Write tests for the webhook trigger", "Add edge cases for ticket validation" |
+| Setup documentation, runbooks, operator guides | Bob | "Document deployment", "Explain one-command setup", "Create setup runbook" |
 | Code review | Apone | Review PRs, enforce reviewer-gate |
 | Scope & priorities | Apone | What to build next, trade-offs |
 | Session logging | Scribe | Automatic — never needs routing |
@@ -26,6 +27,7 @@ How to decide who handles what.
 | `squad:hicks` | API / DB / webhook issues | Hicks |
 | `squad:bishop` | AI Search / Foundry Agents issues | Bishop |
 | `squad:vasquez` | Test / quality issues | Vasquez |
+| `squad:bob` | Documentation / setup guide issues | Bob |
 
 ### How Issue Assignment Works
 

@@ -100,3 +100,28 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 - Webhook-driven architecture maintains integration potential with external systems
 
 **Status:** ✅ All components implemented and ready for integration
+
+---
+
+### 2026-05-07 — Single-Command Setup & Infrastructure Finalization
+
+**Session Outcome:** Complete one-command setup architecture validated and approved for user deployment.
+
+**Infrastructure Decisions Finalized:**
+1. **Dynamic Resource Group** — Changed from hardcoded `rg-agentic-res-src-dev` to dynamic creation (`rg-{environmentName}`). Enables `azd up` to work in any subscription/environment. Pattern: `main.bicep` creates RG; `resources.bicep` provisions resources in it.
+
+2. **Key Vault RBAC Scope** — Fixed role assignment scope from resource group to Key Vault resource (principle of least privilege). GUID generation now uses Key Vault ID (available at compile time). Bicep `parent:` property syntax cleaner than string concatenation.
+
+3. **PrincipalType Flexibility** — Added `@allowed(['User', 'ServicePrincipal'])` parameter to `keyvault.bicep` module. Supports both user deployments (`azd up` from workstation) and CI/CD service principal scenarios without module modification.
+
+4. **Validation:** `az bicep build --file infra/main.bicep` ✅ | `az bicep lint` ✅ | All 14 tests pass ✅
+
+**Coordination Notes:**
+- Vasquez identified hardcoded RG blocker and validated fixes
+- DevOps specialist built orchestration script using this foundation
+- Hicks integrated admin endpoints secured with configuration gates
+- Bob documented the two-step setup (infrastructure + Container Apps)
+
+**Key Learning:** Cloud infrastructure templates must be designed for **reproducibility across environments**. Hardcoded resource names break the "single command works anywhere" promise. Dynamic naming patterns (environment-based, location-based) are essential for IaC credibility.
+
+**Future Work:** Phase 2 can expand Bicep to include Container Apps modules (currently using Azure CLI in orchestration script for expediency). Foundry resource model with `kind: 'AIServices'` and projects will need AIServices account + connections per modern (2025+) patterns — avoid legacy `kind: 'AIFoundry'` or `MachineLearningServices` workspace hub patterns.

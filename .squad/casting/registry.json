@@ -39,6 +39,14 @@
       "legacy_named": false,
       "status": "active",
       "role": "Tester"
+    },
+    "bob": {
+      "persistent_name": "Bob",
+      "universe": "User Named",
+      "created_at": "2026-05-07",
+      "legacy_named": false,
+      "status": "active",
+      "role": "Technical Writer"
     }
   }
 }

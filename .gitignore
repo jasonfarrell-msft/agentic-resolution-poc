@@ -485,6 +485,11 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Bicep compiled ARM templates (generated artifacts)
+infra/**/*.json
+!infra/**/bicepconfig.json
+
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/orchestration-log/
 .squad/decisions/inbox/

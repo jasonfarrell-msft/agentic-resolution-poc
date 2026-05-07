@@ -1,5 +1,6 @@
 using AgenticResolution.Api.Api;
 using AgenticResolution.Api.Data;
+using AgenticResolution.Api.Middleware;
 using AgenticResolution.Api.Webhooks;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
 using Azure.Identity;
@@ -140,6 +141,11 @@ END TRY BEGIN CATCH END CATCH
 
 app.UseCors("BlazorFrontend");
 app.UseHttpsRedirection();
+app.UseMiddleware<AdminAuthMiddleware>();
 app.MapTicketsApi();
 app.MapKnowledgeBaseApi();
+app.MapAdminApi();
 app.Run();
+
+// Make Program accessible to integration tests
+public partial class Program { }

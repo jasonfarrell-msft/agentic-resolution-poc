@@ -1,5 +1,149 @@
 # Squad Decisions
 
+### 2026-05-07: One-Command Azure Deployment Architecture (Apone)
+
+**By:** Apone (Lead / Architect)  
+**Status:** Implemented  
+
+**Summary:** Single-command zd up deployment provisioning SQL Server, Key Vault, App Service, managed identities, and role assignments. Web App accesses SQL via managed identity; SQL connection string stored in Key Vault.
+
+**Key Decisions:**
+- Dynamic resource group (g-{environmentName})
+- Managed identity for Web App (no client secrets)
+- RBAC for Key Vault (not access policies)
+- User provides SQL password via env var or interactive prompt
+
+**Validation:** z bicep build --file infra/main.bicep ✅ | dotnet build ✅
+
+---
+
+### 2026-05-07: Bicep One-Command Revision (Vasquez + Apone)
+
+**By:** Apone / Vasquez  
+**Status:** Implemented  
+
+**Summary:** Fixed hardcoded resource group blocker. Changed from xisting to dynamic creation (g-{environmentName}). Corrected Key Vault role assignment scope (resource-level, not resource group). Simplified secret parent property syntax.
+
+**Changes:**
+- Resource group: Dynamic creation with azd environment naming
+- Key Vault role: Scoped to Key Vault resource (not resource group)
+- Secret syntax: Used parent: kv property (cleaner, Bicep lint friendly)
+- PrincipalType: Made flexible for User and ServicePrincipal scenarios
+
+**Validation:** z bicep build ✅ | z bicep lint ✅
+
+---
+
+### 2026-05-07: Setup Validation & Test Harness Fix (Vasquez)
+
+**By:** Vasquez (QA / Tester)  
+**Status:** Approved  
+
+**Summary:** Validated setup against all requirements. Found and verified fix for hardcoded resource group blocker. Fixed test harness by adding missing services.AddRouting(). All 14 tests now pass.
+
+**Validation Results:**
+- Bicep compilation: ✅ PASS
+- Solution build: ✅ PASS
+- AdminAuthenticationTests: 7/7 ✅
+- AdminEndpointsTests: 7/7 ✅
+
+**Verdict:** Single-command setup production-ready.
+
+---
+
+### 2026-05-07: Backend Reset Security (Hicks)
+
+**By:** Hicks (Backend Developer)  
+**Status:** Implemented  
+
+**Summary:** Secured admin endpoints with API key authentication and configuration gates. Endpoints disabled by default. Custom middleware validates X-Admin-Api-Key header. Setup-Solution.ps1 generates ephemeral keys per session.
+
+**Endpoints:**
+- POST /api/admin/reset-data: Bulk reset (ExecuteUpdateAsync)
+- GET /api/admin/health: Database connectivity check
+
+**Security:**
+- Disabled by default (AdminEndpoints:Enabled=false)
+- API key auth (non-interactive, automation-friendly)
+- Ephemeral keys (generated per session, not persisted)
+- Audit logging on all admin access
+
+**Sample Tickets:** 5 realistic demo tickets seeded on request (New/unassigned, staggered times)
+
+---
+
+### 2026-05-07: Complete Single-Command Setup Script (DevOps Specialist)
+
+**By:** DevOps Specialist  
+**Status:** Implemented  
+
+**Summary:** Setup-Solution.ps1 orchestrates complete deployment: foundation (azd) + Container Apps (ACR, CAE, .NET API, Python Resolution) + data reset. Single command deploys entire solution in ~10 minutes. No hardcoded external API URLs; all infrastructure created fresh.
+
+**Deployment Flow:**
+- azd up (foundation)
+- Container Apps Environment + ACR creation
+- Container image builds (az acr build, cloud-based)
+- Container App creation (.NET API, Python Resolution)
+- Web App configuration update (new API URLs)
+- Health check polling (120s timeout)
+- Data reset (ephemeral admin API key)
+
+**Key Decisions:**
+- Azure CLI for Container Apps (immediate, self-contained)
+- az acr build (no Docker Desktop needed)
+- User-assigned managed identities (fine-grained RBAC)
+- Ephemeral admin keys (generated per setup session)
+
+**Success Criteria:** All ✅
+- Single command deploys all infrastructure + apps
+- No hardcoded external URLs
+- Data reset uses newly deployed API
+- Clear error messages on failure
+- Secrets secure (not logged/echoed)
+
+---
+
+### 2026-05-07: Setup & Deployment Documentation (Bob)
+
+**By:** Bob (Technical Writer)  
+**Status:** Implemented  
+
+**Summary:** Created SETUP.md (5,300 words, operator-focused) and refactored DEPLOY.md (236 lines, infrastructure-focused). Clear separation: SETUP.md for first-time deployment, DEPLOY.md for deep architecture context. Forward references prevent confusion.
+
+**SETUP.md:**
+- Prerequisites, one-command overview
+- Usage examples (basic, sample data, CI/CD)
+- Verification steps (Azure Portal, endpoints)
+- Troubleshooting for common failures
+
+**DEPLOY.md:**
+- Removed redundant setup steps
+- Added Container Apps details
+- Clarified foundation-only vs complete setup
+- Kept infrastructure, security, monitoring context
+
+**Outcome:** No confusion about manual vs automated steps; documentation aligns with actual deployment flow.
+
+---
+
+### 2026-05-07: User Directive — Single-Command Setup (Jason Farrell)
+
+**By:** Jason Farrell  
+**Captured:** Scribe  
+**Status:** Implemented  
+
+**Directive:** Setup should be as close to single command as possible, with minimal manual steps. Documentation should explain only the steps that truly need to occur.
+
+**Delivered:**
+- ✅ Command: .\scripts\Setup-Solution.ps1
+- ✅ Manual steps: SQL password only (env var or prompt)
+- ✅ Documentation: SETUP.md (operator) + DEPLOY.md (architect)
+- ✅ Infrastructure: All created fresh (no hardcoded external URLs)
+- ✅ Security: Secured by default (API key auth, managed identities)
+- ✅ Consistency: Automated data reset to New/unassigned baseline
+
+---
+
 ### 2026-05-07: Ferro — Blazor Web App Deployed to Azure
 
 **By:** Ferro (Frontend Developer)  
@@ -745,3 +889,4 @@ Expected backend paths on the deployed CRUD API:
 - Local detail page rendered live ticket `INC0010102` from ca-api.
 - Deployed to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
 - Live detail route `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` renders ticket detail content and no longer remains on the loading skeleton.
+

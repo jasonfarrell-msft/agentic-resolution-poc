@@ -6,6 +6,9 @@
     <UserSecretsId>agenticresolution-api-secrets</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="AgenticResolution.Api.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Azure.AI.Agents.Persistent" Version="1.0.0-beta.4" />
     <PackageReference Include="Azure.AI.Projects" Version="1.0.0-beta.7" />
     <PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.3.2" />

@@ -61,3 +61,55 @@ Total: ~38 test methods scaffolded, all Skip-marked pending impl.
 
 **📌 TEAM NOTE (2026-05-05) — .gitignore baseline established**  
 Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.squad/log/` is preserved (project docs). Build artifacts (`bin/`, `obj/`) are now ignored. Do NOT commit these directories going forward — .gitignore patterns are now active.
+
+---
+
+### 2026-05-07 — Setup Validation & Test Harness Hardening
+
+**Session Outcome:** Validated single-command setup against all requirements. Identified and verified fixes for infrastructure blocker. Test harness now robust; all 14 tests passing.
+
+**Blockers Identified & Resolved:**
+1. **Hardcoded Resource Group** ✅ Fixed by Apone
+   - Problem: `infra/main.bicep` hardcoded `rg-agentic-res-src-dev`; breaks single-command setup for new environments
+   - Solution: Changed to dynamic creation pattern `rg-{environmentName}`
+   - Impact: Setup now reproducible across any subscription
+
+2. **Key Vault Role Assignment Scope** ✅ Fixed by Apone
+   - Problem: Role assigned at resource group scope (too broad)
+   - Solution: Scoped to Key Vault resource (principle of least privilege)
+   - Impact: Follows Azure RBAC best practices; aligns with security-first infrastructure
+
+3. **Test Harness Missing Routing Services** ✅ Fixed by Vasquez
+   - Problem: Tests failed with `InvalidOperationException: Unable to find required services... AddRouting`
+   - Root cause: `ConfigureServices` called `app.UseRouting()` and `app.UseEndpoints()` but never registered routing
+   - Solution: Added `services.AddRouting()` to `CreateTestClient` method
+   - Impact: All 14 tests now pass; middleware tested with actual ASP.NET Core infrastructure
+
+**Validation Matrix:**
+| Check | Status | Notes |
+|-------|--------|-------|
+| Single-command setup | ✅ | `.\scripts\Setup-Solution.ps1` full deployment |
+| Infrastructure provisioning | ✅ | All resources created; Bicep validates |
+| Role assignments | ✅ | RBAC configured, tested |
+| Secrets management | ✅ | SQL connection string in Key Vault |
+| Data reset logic | ✅ | Bulk reset idempotent, tested |
+| Security hardening | ✅ | API key auth, config gates, middleware |
+| Bicep validation | ✅ | `az bicep build` ✅ | `az bicep lint` ✅ |
+| Test suite | ✅ | AdminAuthenticationTests 7/7 | AdminEndpointsTests 7/7 |
+
+**Verdict:** APPROVED for user deployment.
+
+**Key Learnings:**
+1. **Test infrastructure alignment** — Tests must use real ASP.NET Core routing, not mocks. In-memory substitutes can hide real middleware bugs. TestServer + real middleware > simulated routing.
+
+2. **Blocker detection pattern** — Requirements-based validation (single-command setup, infrastructure provisioning, role assignments, security) catches architectural issues early. Don't wait for deployment failures; validate against requirements first.
+
+3. **Bicep best practices** — Dynamic resource names enable environment isolation. Hardcoded names are deployment anti-patterns. Same applies to container/function names: use `{namePrefix}` with environment-based uniqueSuffix.
+
+4. **Infrastructure repeatability** — "Works once" ≠ "works reproducibly". Test in clean environment. Validate in second subscription if possible. Hardcoded assumptions are deployment debt.
+
+**Coordination Notes:**
+- Vasquez identified blockers early; Apone fixed infrastructure issues promptly
+- DevOps specialist validated fixes in orchestration script
+- Hicks integrated secure endpoints; all tests validate real middleware behavior
+- Bob incorporated validation findings into documentation

@@ -6,11 +6,62 @@ param tags object
 @description('Deploy backend resources (Container Apps, ACR, etc.) - defaults to false')
 param deployBackend bool = false
 
-@description('External URL for the .NET tickets CRUD API used by the Blazor frontend.')
-param ticketsApiBaseUrl string = 'https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io'
+@description('URL for the .NET tickets CRUD API used by the Blazor frontend. Setup-Solution.ps1 configures this after creating the API Container App.')
+param ticketsApiBaseUrl string = ''
 
-@description('External URL for the Python Resolution API used by the Blazor frontend.')
-param resolutionApiBaseUrl string = 'https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io'
+@description('URL for the Python Resolution API used by the Blazor frontend. Setup-Solution.ps1 configures this after creating the Resolution Container App.')
+param resolutionApiBaseUrl string = ''
+
+@description('SQL Server administrator login')
+param sqlAdminLogin string = 'sqladmin'
+
+@secure()
+@description('SQL Server administrator password - must be passed securely')
+param sqlAdminPassword string
+
+// ========================================
+// CORE INFRASTRUCTURE: Key Vault + SQL
+// ========================================
+
+var keyVaultName = 'kv-${replace(environmentName, '-', '')}'
+var sqlServerName = 'sql-${environmentName}'
+
+module keyVault './modules/keyvault.bicep' = {
+  name: 'keyvault'
+  params: {
+    name: keyVaultName
+    location: location
+    tags: tags
+    principalId: principalId
+  }
+}
+
+module sqlServer './modules/sqlserver.bicep' = {
+  name: 'sqlserver'
+  params: {
+    name: sqlServerName
+    location: location
+    tags: tags
+    administratorLogin: sqlAdminLogin
+    administratorLoginPassword: sqlAdminPassword
+    allowAzureServices: true
+  }
+}
+
+// Reference to Key Vault for role assignments and child resources
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+// Store SQL connection string in Key Vault
+resource sqlConnectionStringSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  name: 'sql-connection-string'
+  parent: kv
+  properties: {
+    value: 'Server=tcp:${sqlServer.outputs.serverFqdn},1433;Initial Catalog=${sqlServer.outputs.databaseName};Persist Security Info=False;User ID=${sqlAdminLogin};Password=${sqlAdminPassword};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;'
+  }
+  dependsOn: [keyVault]
+}
 
 // ========================================
 // FRONTEND: App Service for Blazor Web
@@ -38,6 +89,9 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
     'azd-service-name': 'web'
   })
   kind: 'app,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
@@ -62,9 +116,27 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'ASPNETCORE_ENVIRONMENT'
           value: 'Production'
         }
+        {
+          name: 'KeyVault__Uri'
+          value: keyVault.outputs.keyVaultUri
+        }
       ]
     }
     httpsOnly: true
+  }
+}
+
+// Grant Web App managed identity access to Key Vault secrets
+resource webAppKvRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(kv.id, webApp.id, 'kv-secrets-user')
+  scope: kv
+  properties: {
+    principalId: webApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '4633458b-17de-408a-b874-0445c86b69e6'
+    )
   }
 }
 
@@ -104,3 +176,8 @@ module containerEnv './modules/containerappenvironment.bicep' = if (deployBacken
 output webAppName string = webApp.name
 output webAppHostname string = webApp.properties.defaultHostName
 output appServicePlanId string = appServicePlan.id
+output keyVaultName string = keyVaultName
+output keyVaultUri string = keyVault.outputs.keyVaultUri
+output sqlServerName string = sqlServerName
+output sqlServerFqdn string = sqlServer.outputs.serverFqdn
+output sqlDatabaseName string = sqlServer.outputs.databaseName
