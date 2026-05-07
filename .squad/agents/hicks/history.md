@@ -37,6 +37,7 @@
 - **Synthetic progress events removed (2026-07-25):** `AgentOrchestrationService.ProcessTicketAsync` was firing premature Started+Completed events for ClassifierExecutor and IncidentFetchExecutor before any real work. Removed Completed for Classifier (only fires Started + Routed now) and removed IncidentFetchExecutor entirely — the agent call fires under IncidentDecomposerExecutor Started/Completed. Step events should only mark Completed when actual executor work finishes.
 - **Architecture note (agents):** There is no `Agents:IncidentUrl` in the real system. Agents use Agent Framework with defined Executors; the orchestration service's `_config["Agents:IncidentUrl"]` is a stub that will be replaced by proper executor invocation.
 - **Ticket list loading (2026-05-07):** The deployed .NET CRUD API `GET /api/tickets` is healthy and returns camelCase JSON with string enums from `ca-api-tocqjp4pnegfo`; Blazor Server must have `ApiClient:BaseUrl`/`ApiClient__BaseUrl` set to that ca-api URL. Source paths: `src/dotnet/AgenticResolution.Api/Api/TicketsEndpoints.cs`, `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs`, `infra/resources.bicep`.
+- **Ticket/API routing check (2026-05-07):** CRUD tickets live only at `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/api/tickets`; `/tickets` is a Blazor UI route and correctly returns the page shell. Verified live `ca-api` returns `200 application/json` for `/api/tickets?page=1&pageSize=1` and `404` for `/tickets`. The active App Service `app-agentic-res-src-dev-tocqjp4pnegfo` had legacy `ApiBaseUrl` but was missing `ApiClient__BaseUrl`; set `ApiClient__BaseUrl` and `ResolutionApi__BaseUrl` in `rg-agentic-res-src-dev`, restarted it, and verified `/tickets` no longer renders the API-unconfigured state. Hardened `src/dotnet/AgenticResolution.Web/Program.cs`, `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs`, and `infra/resources.bicep` so the web app uses the ca-api base URL and fails fast if HTML shell content is returned instead of JSON.
 
 
 ## 2026-04-29 — Priority enum flip + Phase 1 Azure deploy
@@ -291,3 +292,9 @@ From Ferro (Frontend Dev): Ticket loading failure was caused by missing `ApiClie
 **Shared blocker:** Local dotnet build requires .NET 10; host has .NET 9 only. Cannot validate via local build.
 
 ---
+
+### 2026-05-07 — Ticket API routing contract verified
+
+Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/api/tickets`. Set missing App Service settings. Verified live `GET /api/tickets?page=1&pageSize=1` returns 200 JSON with 98 available tickets. Hardened `TicketApiClient` against HTML-as-JSON responses. Status: Complete, `dotnet build` passed.
+
+**Collaboration note:** Ferro applied frontend configuration fix to prioritize environment-set `TICKETS_API_URL`. Both backend and frontend work complete.

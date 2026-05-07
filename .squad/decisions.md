@@ -608,4 +608,72 @@ The Blazor resolution page treats the Python Resolution API as the only streamin
 
 ---
 
+### 2026-05-07: Ferro — Blazor Ticket Crash / Loading Fix
+
+**By:** Ferro (Frontend Developer)  
+**Date:** 2026-05-07  
+**Status:** Implemented locally; not deployed
+
+## Context
+
+Inspecting `/tickets` returns the Blazor page shell. Seeing dormant `#blazor-error-ui`, reconnect modal markup, and `_framework/blazor.web*.js` in that HTML is expected for a Blazor route and is not itself proof that `/tickets` is the ticket API.
+
+The real loading failure was configuration precedence. `TicketApiClient` selected `ApiClient:BaseUrl` before `TICKETS_API_URL`. In a Development-hosted Web App, `appsettings.Development.json` supplies `https://localhost:7001`, so the UI could ignore the corrected `TICKETS_API_URL` pointing at `ca-api` and attempt to load tickets from localhost.
+
+## Decision
+
+For the Blazor Web app's ticket CRUD client, `TICKETS_API_URL` is the highest-priority deployed override. `ApiClient:BaseUrl` remains the structured/local fallback.
+
+## Files
+
+- `src/dotnet/AgenticResolution.Web/Program.cs`
+- `src/dotnet/AgenticResolution.Web/appsettings.Development.json`
+- `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs`
+
+## Validation
+
+- `dotnet build src/dotnet/AgenticResolution.sln --nologo`
+- Local Development run with `TICKETS_API_URL=https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`; `/tickets` rendered live ticket rows.
+
+## Deployment Note
+
+Use resource group `rg-agentic-res-src-dev` for any future Azure verification or deployment. No deployment was performed for this fix.
+
+---
+
+### 2026-05-07: Hicks — Ticket API Routing Contract
+
+**By:** Hicks (Backend Developer)  
+**Date:** 2026-05-07  
+**Status:** Implemented and validated
+
+## Decision
+
+The Blazor web app route `/tickets` is UI-only. Ticket CRUD API calls must target the separate .NET Container App base URL plus the `/api/tickets` prefix:
+
+`https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/api/tickets`
+
+## Configuration
+
+Preferred web app setting: `ApiClient__BaseUrl`.
+Legacy compatibility: `ApiBaseUrl` is still accepted during transition.
+Container/service compatibility: `TICKETS_API_URL` is also accepted.
+
+`ResolutionApi__BaseUrl` remains the Python resolution API setting.
+
+## Evidence
+
+- `ca-api` ingress is external on target port 8080.
+- Live `GET /api/tickets?page=1&pageSize=1` on `ca-api` returns `200 application/json` with paged camelCase JSON.
+- Live `GET /tickets` on `ca-api` returns `404`, proving CRUD is not mounted at `/tickets`.
+- Live `GET /tickets` on the App Service returns `200 text/html`, which is expected because it is the Blazor page shell.
+
+## Implementation Notes
+
+- `TicketApiClient` uses relative `api/tickets` paths against the configured base URL.
+- The web app now rejects `/api/*` requests with an API-specific problem response after the next web deployment, avoiding accidental Blazor shell fallback.
+- `TicketApiClient` now rejects non-JSON successful responses with a clear error so a routed HTML shell cannot masquerade as a healthy API response.
+
+---
+
 **Earlier decisions archived to `decisions-archive-2026-04-29.md`** (Phase 1 scope, resources, test infrastructure, etc.)

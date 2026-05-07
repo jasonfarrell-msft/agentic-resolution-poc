@@ -274,3 +274,15 @@ From Hicks (Backend Dev): Ticket loading issue was verified as frontend-side con
 **Shared blocker:** Local dotnet build requires .NET 10; host has .NET 9 only. Cannot validate fixes via local build.
 
 ---
+
+- **2026-05-07 — Blazor ticket crash diagnosis: `/tickets` is shell, API URL precedence was wrong.**
+  - Root cause: the Blazor route `/tickets` correctly returns the app shell, including dormant `#blazor-error-ui`, reconnect modal markup, and `_framework/blazor.web*.js`; the actual ticket-loading failure was `TicketApiClient` choosing `ApiClient:BaseUrl` before `TICKETS_API_URL`.
+  - In Development-hosted environments, `src/dotnet/AgenticResolution.Web/appsettings.Development.json` sets `ApiClient:BaseUrl` to `https://localhost:7001`, so a deployed App Service running with Development settings could ignore the corrected `TICKETS_API_URL` ca-api setting and call localhost instead.
+  - Fixed `src/dotnet/AgenticResolution.Web/Program.cs` so `TICKETS_API_URL` wins over JSON `ApiClient:BaseUrl`, preserving `ApiClient:BaseUrl` as the local/default fallback.
+  - Validated with `dotnet build src/dotnet/AgenticResolution.sln --nologo` and a local Development run using `TICKETS_API_URL=https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`; `/tickets` rendered real `INC...` rows. No deployment performed.
+
+### 2026-05-07 — Blazor ticket crash diagnosis complete
+
+Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was `TicketApiClient` preferring `ApiClient:BaseUrl` (localhost:7001) over environment `TICKETS_API_URL`. Updated `Program.cs` to prioritize `TICKETS_API_URL`. Validated with local build and run showing live INC ticket rows. Status: Complete, ready for deployment.
+
+**Collaboration note:** Hicks confirmed backend API is healthy and serving expected JSON. No backend changes required.

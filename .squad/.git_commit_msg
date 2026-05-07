@@ -1,0 +1,14 @@
+.squad: Merge ticket loading fix decisions and orchestration logs
+
+- Orchestration logs for Ferro (frontend config fix) and Hicks (backend verification)
+- Session log for ticket loading fix (2026-05-07)
+- Merged inbox decisions into decisions.md:
+  * Ferro: Blazor needs separate ApiClient:BaseUrl (CRUD) and ResolutionApi:BaseUrl (Python)
+  * Hicks: Backend verified healthy; deployment API returns expected paged JSON with 98 tickets
+  * Directive: Resource group `rg-agentic-res-src-dev` is the standard across all deployments
+- Deleted merged inbox files
+- Archived old Architecture: Solution Split decision (2025-07-25) to decisions-archive.md
+- Updated Ferro and Hicks history with cross-agent context about ticket loading fix
+- Shared blocker: Local builds require .NET 10, host has .NET 9 only
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
