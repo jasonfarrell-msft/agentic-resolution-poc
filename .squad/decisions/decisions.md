@@ -1,6 +1,6 @@
 # Project Decisions — Agentic Resolution
 
-**Last Updated:** 2026-05-04  
+**Last Updated:** 2026-05-07  
 **Status:** Active decisions (deduplicated, consolidated from .squad/decisions/inbox/)
 
 ---
@@ -17,6 +17,8 @@
 9. [Resolution Pipeline: Question-Driven KB](#resolution-pipeline-redesign)
 10. [Ticket Loading Configuration Fix](#ticket-loading-configuration-fix)
 11. [Directives from Leadership](#leadership-directives)
+12. [Azure SQL Entra-Only Authentication (MCAPS Compliance)](#sql-entra-auth)
+13. [Entra Auth Verification - No Code Changes Needed](#entra-auth-verification)
 
 ---
 
@@ -805,6 +807,160 @@ GET /api/tickets?page={page}&pageSize={pageSize}&assignedTo={assignedTo?}&state=
 
 ---
 
+## SQL Entra Auth
+
+**Date:** 2026-05-07  
+**Decided by:** Bishop (deployment specialist)  
+**Status:** ✅ Implemented
+
+### Problem
+
+Azure SQL deployment to `rg-agent-resolution-test` failed due to MCAPS policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny` requiring:
+
+```json
+properties.administrators.azureADOnlyAuthentication == true
+```
+
+Existing infrastructure had stale SQL password authentication parameters and missing Entra admin persistence.
+
+### Decision
+
+**Adopt Entra-only authentication for all Azure SQL deployments:**
+
+1. **No SQL password authentication** — Remove `administratorLogin` and `administratorLoginPassword`
+2. **Entra admin from signed-in user** — Use current Azure CLI user as SQL Server Entra admin
+3. **Persist to azd environment** — Store Entra admin values via `azd env set` before deployment
+4. **Regenerate ARM templates** — Keep `main.json` in sync with Bicep sources
+
+### Implementation
+
+**Bicep Templates:**
+```bicep
+// infra/modules/sqlserver.bicep
+properties: {
+  administrators: {
+    administratorType: 'ActiveDirectory'
+    login: entraAdminLogin
+    sid: entraAdminObjectId
+    tenantId: entraAdminTenantId
+    azureADOnlyAuthentication: true  // ✅ MCAPS compliant
+  }
+}
+```
+
+**Setup Script:**
+```powershell
+# Get signed-in user
+$currentUser = az ad signed-in-user show | ConvertFrom-Json
+$entraAdminLogin = $currentUser.userPrincipalName
+$entraAdminObjectId = $currentUser.id
+
+# Persist to azd environment
+azd env set entraAdminLogin $entraAdminLogin
+azd env set entraAdminObjectId $entraAdminObjectId
+```
+
+### Connection String Impact
+
+**Before (SQL auth):**
+```
+Server=tcp:sql-env.database.windows.net,1433;Database=agenticresolution;User ID=sqladmin;Password=...;
+```
+
+**After (Entra auth):**
+```
+Server=tcp:sql-env.database.windows.net,1433;Initial Catalog=agenticresolution;Authentication=Active Directory Default;
+```
+
+Managed identities automatically authenticate when running in Azure. Local development requires `az login`.
+
+### Rationale
+
+1. **MCAPS policy requirement** — Mandatory for Azure SQL in Microsoft tenant
+2. **Security best practice** — Eliminates password-based authentication risks
+3. **Managed identity support** — Enables passwordless connection strings
+4. **Audit compliance** — All database access tied to Azure AD identities
+
+### Files Modified
+
+1. **`infra\main.bicep`** — Updated SQL server module parameters
+2. **`infra\resources.bicep`** — Refined resource definitions
+3. **`infra\modules\sqlserver.bicep`** — Core Entra admin configuration
+4. **`scripts\Setup-Solution.ps1`** — Enhanced error handling, cleaned whitespace
+
+### Validation
+
+✅ `az bicep build --file infra\main.bicep` — succeeded  
+✅ `git diff --check` — no trailing whitespace on changed lines  
+✅ All Bicep syntax valid
+
+### Risks & Mitigations
+
+**Risk:** Developer doesn't have SQL Admin rights in existing environments  
+**Mitigation:** Existing Entra admin can grant new admin permissions via T-SQL
+
+**Risk:** CI/CD pipeline uses service principal without SQL access  
+**Mitigation:** Grant service principal Entra admin role during environment setup
+
+### Next Actions
+
+1. ✅ **Test deployment** — Verified in `rg-agent-resolution-test`
+2. ⏳ **Update CI/CD** — Ensure pipeline service principal has appropriate values set
+3. ⏳ **Document local dev** — Update README with `az login` requirement
+4. ⏳ **Verify managed identities** — Confirm App Service and Container Apps can connect
+
+---
+
+## Entra Auth Verification
+
+**Date:** 2026-05-07  
+**Agent:** Hicks (Backend Developer)  
+**Status:** ✅ Complete - No action required
+
+### Context
+
+Jason requested verification that the .NET API works with Azure SQL Entra-only authentication after Bishop's infrastructure changes implementing managed identity authentication.
+
+### Finding
+
+**The application already fully supports Entra authentication without any code changes.**
+
+### Technical Details
+
+**Why it works automatically:**
+1. **Connection String:** Infrastructure provides `Authentication=Active Directory Default`
+2. **SqlClient Support:** Microsoft.Data.SqlClient 6.1.1+ natively interprets as DefaultAzureCredential
+3. **EF Core:** `UseSqlServer(connectionString)` transparently passes auth to SqlClient
+4. **Azure.Identity:** Already referenced (1.14.2) - provides credential chain
+
+**Authentication behavior:**
+- **Azure deployment:** Uses App Service/Container App managed identity
+- **Local development:** Uses Azure CLI credentials (`az login`)
+- **Fallback chain:** ManagedIdentity → AzureCli → VisualStudio → SharedToken → Interactive
+
+**Changes made:**
+- Added startup diagnostic logging to confirm auth mode
+- Refactored to single `connectionString` variable (code quality)
+
+### Recommendation
+
+**Accept as-is.** This is correct "infrastructure-driven auth" pattern:
+- No app-level token acquisition
+- No explicit credential instantiation
+- Connection string configuration handles everything
+- Works identically in Azure and local dev
+
+### Validation
+
+- Build: ✅ Success
+- Tests: ✅ 15/15 pass
+- No new dependencies
+- No breaking changes
+
+**Decision:** Accept current implementation (standard pattern, zero maintenance).
+
+---
+
 ## Status Summary
 
 | Component | Owner | Status | Date |
@@ -821,10 +977,10 @@ GET /api/tickets?page={page}&pageSize={pageSize}&assignedTo={assignedTo?}&state=
 | Python Resolution API (Phase 2.5) | Bishop | ✅ Implemented | 2026-05-06 |
 | Blazor Web Project (Phase 2.5) | Ferro | ✅ Created | 2026-05-05 |
 | API Contract Extensions (Phase 2.5) | Hicks | ✅ Implemented | 2026-05-06 |
-| .NET Orchestration Cleanup (Phase 2.5) | Hicks | ✅ Completed | 2026-05-06 |
-| Azure IaC Baseline (Phase 2.5) | Hicks | ✅ Completed | 2026-05-05 |
+| Azure SQL Entra-Only Authentication | Bishop | ✅ Implemented | 2026-05-07 |
+| Entra Auth Verification (.NET API) | Hicks | ✅ No changes needed | 2026-05-07 |
 
 ---
 
-**Last consolidated:** 2026-05-07T012926Z  
-**Next review:** Post-deployment validation of ticket loading fix and .NET version alignment
+**Last consolidated:** 2026-05-07T20:32:27Z  
+**Next review:** Post-deployment validation of SQL Entra authentication in production

@@ -411,3 +411,41 @@ Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `h
 - DevOps specialist integrated reset-data into orchestration script
 - Apone's secure Bicep foundation enables Key Vault secret storage for API keys (if persisted)
 - Bob documented reset capability in SETUP.md troubleshooting section
+
+
+## 2026-05-07 — Entra Auth Verification and Diagnostic Logging
+
+**Context:** Jason requested verification that .NET app authentication works with Azure SQL Entra-only auth using managed identities/DefaultAzureCredential. After infrastructure changes by Bishop (2026-05-07 16:16) that implemented Entra-only authentication, needed to verify .NET app side was ready.
+
+**Analysis:**
+- ✅ Infrastructure already correct: Connection string uses `Authentication=Active Directory Default`
+- ✅ Microsoft.Data.SqlClient 6.1.1 natively supports this auth mode (uses DefaultAzureCredential internally)
+- ✅ Azure.Identity 1.14.2 already referenced
+- ✅ EF Core 10.0.0 + SqlServer provider fully compatible
+- ✅ No explicit SqlConnection or AccessToken acquisition code needed
+
+**Behavior:**
+- **Azure:** Automatically uses App Service/Container App managed identity
+- **Local dev:** Uses Azure CLI credentials (via `az login`)
+- **Credential chain:** ManagedIdentity → AzureCli → VisualStudio → SharedToken → others
+
+**Changes Made:**
+1. **src/dotnet/AgenticResolution.Api/Program.cs**
+   - Added diagnostic logging to show authentication mode at startup
+   - Refactored to use single `connectionString` variable (DRY, no duplication)
+   - Logs: `[Startup] SQL connection configured for Entra authentication (managed identity / Azure CLI credentials)`
+
+**Validation:**
+- `dotnet build src/dotnet/AgenticResolution.Api/AgenticResolution.Api.csproj` → ✅ SUCCESS (1 existing NU1603 warning unrelated to auth)
+- `dotnet test src/dotnet/AgenticResolution.Api.Tests/AgenticResolution.Api.Tests.csproj` → ✅ 15/15 tests pass
+
+**Summary:**
+The .NET application requires **ZERO changes** to support Entra authentication. The `Authentication=Active Directory Default` connection string parameter works transparently with:
+- EF Core's `UseSqlServer(connectionString)`
+- Microsoft.Data.SqlClient 6.0+ automatic DefaultAzureCredential behavior
+- Both Azure (managed identity) and local (Azure CLI) scenarios
+
+Added diagnostic logging for operational visibility. No functional behavior change — app was already Entra-ready.
+
+**Team note:** This is an example of infrastructure-driven security where the platform (Azure SQL + SqlClient provider + Azure.Identity) handles auth entirely through configuration. No application code changes needed beyond connection string format.
+

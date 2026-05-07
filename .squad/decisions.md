@@ -890,3 +890,47 @@ Expected backend paths on the deployed CRUD API:
 - Deployed to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
 - Live detail route `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` renders ticket detail content and no longer remains on the loading skeleton.
 
+
+---
+
+### 2026-05-07: Azure SQL Entra-Only Authentication for MCAPS Compliance (Bishop)
+
+**By:** Bishop (DevOps / Infrastructure Engineer)  
+**Status:** Implemented  
+**Context:** Deployment blocked by MCAPS policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`
+
+**Summary:** Migrated Azure SQL from password-based authentication to Entra (Azure AD) authentication exclusively. Current Azure CLI user automatically configured as SQL Server admin. Managed identities granted database access via setup script.
+
+**Key Changes:**
+- SQL Server: `azureADOnlyAuthentication = true` with Entra admin (current user)
+- Connection strings: `Authentication=Active Directory Default` (no User ID/Password)
+- Setup script: Discovers current user via `az ad signed-in-user show`
+- Database users: Created automatically for API and Web App managed identities
+- Removed: All SQL password parameters, prompts, and environment variables
+
+**Managed Identity Permissions:**
+- **API identity:** `db_owner` role — required because API runs EF migrations on startup
+- **Web App identity:** `db_datareader` + `db_datawriter` roles — standard read/write access
+
+**Production Consideration:**
+The API identity receives `db_owner` because this PoC runs EF migrations on API startup. In production environments, consider:
+1. Separate migration identity (db_owner, used during deployment) from runtime identity (read/write only)
+2. Run migrations as pre-deployment step with elevated identity
+3. API runs with least-privilege identity (db_datareader + db_datawriter)
+
+This pattern would require changes to:
+- Setup-Solution.ps1: Create two identities for API (migration + runtime)
+- API deployment: Run migrations with migration identity before app starts
+- API configuration: Use runtime identity for normal operations
+
+**For this PoC:** The single db_owner identity is documented and acceptable.
+
+**Security Benefits:**
+- ✅ MCAPS policy compliant
+- ✅ No SQL passwords in code, parameters, Key Vault, or environment
+- ✅ Passwordless authentication via Azure platform
+- ✅ Automatic credential rotation (managed identities)
+- ✅ One-command setup maintained
+
+**Validation:** Code review complete. Ready for deployment testing.
+

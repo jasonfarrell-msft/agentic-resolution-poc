@@ -404,3 +404,163 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 - **Validation:** Tested INC0010102 terminal escalated case; pattern matches specification
 - **Decision recorded:** `.squad/decisions.md` / "Bishop — Final Resolver Status Contract" (2026-05-07)
 - **Status:** No deploy needed; contract ready for production
+
+---
+
+### 2026-05-07 — Test Environment Deployment Blocked by MCAPS Policy
+
+**Requested by:** Jason Farrell  
+**Target:** Deploy to `rg-agent-resolution-test` using `Setup-Solution.ps1`
+
+**Status:** ❌ **BLOCKED** — Azure Policy violation
+
+**Issue:** The Azure SQL Server deployment to `rg-agent-resolution-test` is blocked by MCAPS governance policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`. The policy requires:
+- `azureADOnlyAuthentication: true` on all SQL Servers
+- Azure AD administrator configuration (no SQL authentication allowed)
+
+**Current implementation:** `infra/modules/sqlserver.bicep` uses SQL authentication with `administratorLogin` and `administratorLoginPassword` parameters. This violates the MCAPS policy requirement for Azure AD-only authentication.
+
+**Deployment outcome:**
+- ✅ Resource group created: `rg-agent-resolution-test`
+- ✅ Foundation resources deployed: Key Vault (`kv-agentresolutiontest`), App Service Plan (`plan-agent-resolution-test`), Web App (`app-agent-resolution-test-web`)
+- ❌ SQL Server deployment failed with policy violation
+- ❌ Container Apps and backend services not deployed (dependent on SQL)
+
+**Policy details:**
+- **Policy Name:** `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`
+- **Policy Set:** `MCAPSGovDenyPolicies`
+- **Effect:** Deny
+- **Scope:** Management Group `e90bd921-0e00-4e6f-b87c-713670ee27bf`
+- **Required:** `Microsoft.Sql/servers/administrators.azureADOnlyAuthentication == true`
+- **Override:** Tag `SecurityControl=Ignore` on resource (not recommended for production)
+
+**Impact:** The single-command setup script (`Setup-Solution.ps1`) cannot deploy SQL Server in MCAPS-governed subscriptions without architectural changes to support Azure AD-only authentication.
+
+**Workarounds considered:**
+1. **Tag bypass:** Add `SecurityControl: Ignore` tag to SQL Server resource — **NOT RECOMMENDED** for security compliance
+2. **Architecture change:** Migrate to Azure AD authentication — **REQUIRES** rework of connection strings, Entity Framework configuration, and setup script password flow
+3. **Alternative subscription:** Deploy to non-MCAPS subscription for testing — requires access to different Azure tenant/subscription
+
+**Recommended next step:** Escalate to Jason Farrell for decision:
+- Accept the policy limitation and migrate to Azure AD-only authentication (significant rework)
+- Request policy exemption for test environments (requires governance approval)
+- Use alternative testing subscription without MCAPS policy enforcement
+
+**Resources created (partial):**
+- Resource Group: `rg-agent-resolution-test` (East US 2)
+- Key Vault: `kv-agentresolutiontest`
+- App Service Plan: `plan-agent-resolution-test` (B1 Linux)
+- Web App: `app-agent-resolution-test-web`
+
+**Resources NOT created:**
+- SQL Server: `sql-agent-resolution-test` ❌ Policy blocked
+- SQL Database: `agenticresolution` ❌ Dependent on SQL Server
+- Container Apps Environment ❌ Dependent on foundation
+- Azure Container Registry ❌ Dependent on foundation
+- Container Apps (API, Resolution) ❌ Dependent on foundation
+
+**Decision required:** Blocked on architectural decision for Azure AD authentication vs policy exemption vs alternative subscription.
+
+## 2026-05-07 16:16 - Azure SQL Entra-Only Authentication Implementation
+
+**Context:** Deployment to rg-agent-resolution-test was blocked by MCAPS policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`. Jason directed that the solution should use Entra auth with managed identities, setting the current user as admin.
+
+**Changes Implemented:**
+
+1. **infra/modules/sqlserver.bicep**
+   - Removed password-based authentication parameters (`administratorLogin`, `administratorLoginPassword`)
+   - Added Entra admin parameters: `entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId`
+   - Configured `administrators.azureADOnlyAuthentication = true`
+   - Set current user as ActiveDirectory administrator
+
+2. **infra/resources.bicep**
+   - Updated SQL server module call with Entra admin parameters
+   - Changed connection string from User ID/Password to `Authentication=Active Directory Default`
+   - Connection string stored in Key Vault now uses Entra auth exclusively
+
+3. **infra/main.bicep**
+   - Replaced `sqlAdminLogin` and `sqlAdminPassword` parameters with Entra admin parameters
+   - Parameters flow from Setup-Solution.ps1 → main.bicep → resources.bicep → sqlserver.bicep
+
+4. **scripts/Setup-Solution.ps1**
+   - Removed `SqlAdminPassword` parameter and all password prompts
+   - Added discovery of current Azure CLI user via `az ad signed-in-user show`
+   - Set environment variables for azd: `ENTRA_ADMIN_LOGIN`, `ENTRA_ADMIN_OBJECT_ID`, `ENTRA_ADMIN_TENANT_ID`
+   - Added database user creation step (2.8) after Container Apps deployment:
+     * Creates SQL database user for API managed identity with `db_owner` role (required for EF migrations on startup)
+     * Creates SQL database user for Web App managed identity with `db_datareader` + `db_datawriter` roles
+     * Uses `az sql db query` with `--auth-mode ActiveDirectoryIntegrated` to execute SQL script
+     * Graceful error handling with manual fallback instructions
+   - Updated connection string construction to use Entra auth (removed password reference)
+   - Updated script documentation and help text
+
+5. **SETUP.md**
+   - Removed SQL password prerequisite and examples
+   - Added explanation of Entra-only authentication behavior
+   - Documented current user becomes SQL admin automatically
+   - Explained managed identity permissions model
+   - Added security features section
+
+6. **DEPLOY.md**
+   - Updated "What Gets Created" table to note Entra-only authentication
+   - Updated "Initial Setup Flow" to describe Entra admin discovery
+   - Added SQL Authentication explanation section
+
+**Key Security Improvements:**
+- ✅ MCAPS policy compliant (`azureADOnlyAuthentication = true`)
+- ✅ No SQL passwords in code, parameters, or Key Vault
+- ✅ Managed identities for all application access
+- ✅ Current Azure CLI user as SQL admin (enables setup and management)
+- ✅ Least privilege roles where practical (with caveat: API needs db_owner for EF migrations)
+
+**Setup Experience:**
+- ✅ Maintained one-command setup (no additional steps required)
+- ✅ No password prompt — discovers current user automatically
+- ✅ Creates database users for managed identities as part of setup
+- ✅ Graceful error handling if SQL script execution fails
+
+**Known Considerations:**
+- API identity gets `db_owner` role because the API runs EF migrations on startup
+- In production, consider separating migration identity (db_owner) from runtime identity (read/write)
+- Database user creation uses `az sql db query` which requires Azure CLI
+- Fallback: If automated SQL execution fails, script saves SQL file and provides manual instructions
+
+**Testing Status:**
+- ⚠️ Not yet deployed to Azure (per instructions: "Do not deploy to Azure yet unless explicitly asked")
+- Changes validated through code review
+- Ready for deployment testing
+
+**Blocked:** None. Implementation complete and ready for testing.
+
+
+### 2026-05-08: Azure SQL Entra-only authentication fix for MCAPS policy compliance
+
+**Issue:** Azure deployment to `rg-agent-resolution-test` failed on Microsoft.Sql/servers because MCAPS policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny` requires `properties.administrators.azureADOnlyAuthentication == true`.
+
+**Root cause:**
+1. `infra\main.json` was stale — contained SQL password parameters (`sqlAdminLogin`, `sqlAdminPassword`) instead of Entra admin parameters
+2. `scripts\Setup-Solution.ps1` set environment variables but did not persist them to azd environment for deployment
+
+**Fix:**
+1. ✅ **Regenerated main.json from main.bicep** — Removed SQL password auth, added Entra admin parameters (`entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId`)
+2. ✅ **Updated Setup-Solution.ps1** — Added `azd env set` calls to persist Entra admin values before `azd up`
+3. ✅ **Verified SQL configuration** — `azureADOnlyAuthentication: true` present in ARM template
+4. ✅ **Validated with bicep build** — No compilation errors
+
+**Behavior guarantees:**
+- ✅ MCAPS policy compliant — Azure SQL uses Entra-only authentication
+- ✅ No secrets in templates — No SQL passwords in Bicep or ARM templates
+- ✅ Current user as admin — Signed-in Azure CLI user automatically becomes SQL Server Entra admin
+- ✅ Persistent configuration — Entra admin values stored in azd environment survive across deployments
+
+**Files modified:**
+- `infra\main.json` — Regenerated from Bicep, now uses Entra admin parameters only
+- `scripts\Setup-Solution.ps1` — Added `azd env set` calls for `entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId`
+
+**Unchanged (already correct):**
+- `infra\main.bicep` — Already required Entra admin parameters
+- `infra\resources.bicep` — Already passed Entra admin parameters to SQL module
+- `infra\modules\sqlserver.bicep` — Already configured `azureADOnlyAuthentication: true`
+
+**Next:** Test deployment to verify MCAPS policy no longer blocks Azure SQL creation.
+
