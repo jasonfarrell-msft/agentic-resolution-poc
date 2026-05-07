@@ -145,6 +145,55 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 ## Learnings
 
+### 2026-05-07: Final resolver status contract verified
+
+**Verification target:** live `ca-resolution-tocqjp4pnegfo` and `ca-api-tocqjp4pnegfo` in `rg-agentic-res-src-dev`.
+
+**Health evidence:** `GET /health` on the Resolution API returned healthy at `2026-05-07T02:36:49Z`.
+
+**Live SSE evidence:** `POST /resolve` with `{"ticket_number":"INC0010102"}` returned HTTP 200 `text/event-stream` and streamed stage events through classifier, request fetch, request decomposer, evaluator, escalation, then terminal workflow event:
+
+```json
+{"stage":"workflow","status":"escalated","event":"escalated","terminal":true,"message":"Ticket was escalated to a human assignee."}
+```
+
+**Contract for Ferro:** The resolving UI must not treat ordinary stage `status: "completed"` events as workflow completion. It should wait for `terminal: true` and then read `status` or `event` on that terminal workflow event; observed terminal values are `resolved` and `escalated`, with `failed` for error paths.
+
+**Persistence evidence:** After the terminal `escalated` event, `GET /api/tickets/INC0010102/details` showed the ticket updated through the MCP/.NET Tickets API with `state: "InProgress"`, `agentAction: "escalated_to_human"`, `assignedTo: "woo.jinchul@corp"`, confidence `0.2`, and escalation notes. The current .NET ticket enum does not include an `Escalated` state, so detail UI should display escalation from `agentAction == "escalated_to_human"` while resolved tickets use `state == "Resolved"` / `agentAction == "auto_resolved"`.
+
+**Deployment:** No deploy was needed. Live final status emission and resolver-side persistence are working; the only mismatch is UI terminology versus the existing .NET `TicketState` model.
+
+---
+
+### 2026-05-07: Resolution API production contract verification
+
+**Verification target:** `ca-resolution-tocqjp4pnegfo` in resource group `rg-agentic-res-src-dev`.
+
+**Deployed URL:** `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+
+**Container App status:** Azure reported provisioning `Succeeded`, running status `Running`, latest revision `ca-resolution-tocqjp4pnegfo--0000003`, and 100% traffic to latest revision.
+
+**Health:** `GET /health` returned HTTP 200 with JSON body `{"status":"healthy","timestamp":"2026-05-07T02:27:50.800515Z"}`.
+
+**Resolve contract verified from deployed OpenAPI and live probes:**
+- Method/path: `POST /resolve`
+- Headers: `Content-Type: application/json`, `Accept: text/event-stream`
+- Payload: `{"ticket_number":"INC0010102"}`; camelCase `ticketNumber` is rejected with HTTP 422 because `ticket_number` is required.
+- Response: HTTP 200, `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`.
+- `GET /resolve` returns HTTP 405; missing/incorrect content type returns HTTP 422; blank `ticket_number` returns HTTP 400.
+
+**End-to-end smoke test:** Existing ticket `INC0010102` streamed classifier → incident_fetch → incident_decomposer → evaluator → resolution → workflow. Terminal event observed:
+
+```json
+{"stage":"workflow","status":"resolved","event":"resolved","terminal":true}
+```
+
+**UI guidance for Ferro:** The button should navigate to `/tickets/{Number}/resolve`, where the server-side Blazor page opens the SSE stream and renders progress until a terminal event, then redirects back to detail. There is no run ID and no .NET resolution proxy in this contract.
+
+**Web app configuration check:** `app-agentic-resolution-web` has `ResolutionApi__BaseUrl` set to the deployed resolution API URL, plus `ApiClient__BaseUrl`/`TICKETS_API_URL` set to the tickets API.
+
+---
+
 ### 2026-05-06: Resolution API deploy verification
 
 **Verification target:** `ca-resolution-tocqjp4pnegfo`
@@ -348,3 +397,10 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 - Foundry Agent wiring & hosted agents migration (2026-04-30)
 - Question-driven resolution pipeline design (2026-05-04)
 - DecomposerAgent split into IncidentDecomposer + RequestDecomposer (2026-05-04 decision)
+
+### 2026-05-07 — Final Resolver SSE Status Contract Verification
+- **Outcome:** Verified SSE terminal status contract for Python resolver
+- **Contract:** Terminal event uses stage workflow, terminal flag set to true, status/event values are "resolved", "escalated", or "failed"
+- **Validation:** Tested INC0010102 terminal escalated case; pattern matches specification
+- **Decision recorded:** `.squad/decisions.md` / "Bishop — Final Resolver Status Contract" (2026-05-07)
+- **Status:** No deploy needed; contract ready for production

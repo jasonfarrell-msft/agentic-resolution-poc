@@ -47,6 +47,7 @@
 
 ## Learnings
 
+- **Final resolver status persistence (2026-05-07):** The live Tickets API now has a native `Escalated` ticket state. `PUT /api/tickets/{id}` persists `Escalated` directly and also normalizes the legacy resolver payload `state=InProgress` + `agentAction=escalated_to_human` to `Escalated`; read DTOs also project legacy escalated records as `Escalated`. Deployed `ca-api-tocqjp4pnegfo` in `rg-agentic-res-src-dev` with image `acragressrcdevtocqjp4pnegfo.azurecr.io/agentic-resolution/api-src-dev:hicks-final-status-read-20260507024330` (revision `ca-api-tocqjp4pnegfo--0000014`). Validation: `dotnet build src/dotnet/AgenticResolution.sln --nologo` passed; `dotnet build src/dotnet/AgenticResolution.Api/AgenticResolution.Api.csproj --nologo` passed with existing NU1603 warning; known ticket `INC0010102` returned detail state `Resolved`; direct validation ticket `INC0010103` returned detail state `Escalated`; resolver validation ticket `INC0010104` completed with terminal `escalated` and `GET /api/tickets/INC0010104/details` returned ticket state `Escalated`.
 - **Ticket detail contract (2026-05-07):** Detail fetch is by ticket number, not GUID. Live ca-api evidence from `rg-agentic-res-src-dev`: `GET /api/tickets?page=1&pageSize=1` returned 200 with 98 total tickets and sample `INC0010102` / `bcd0df92-9b6b-4f17-982a-c1989924edbc`; `GET /api/tickets/INC0010102/details` returned 200 JSON with `ticket`, `comments`, and `runs`; `GET /api/tickets/INC0010102` returned 200 single-ticket JSON; GUID forms `/api/tickets/{id}` and `/api/tickets/{id}/details` returned 404. Blazor detail route `/tickets/{Number}` calls `TicketApiClient.GetTicketDetailsAsync(number)`, which correctly calls `api/tickets/{number}/details`. Source API DTO was aligned to include `runs` with workflow events so future deploys preserve the production contract.
 - **Validation:** DataAnnotations + a generic `ValidationFilter<T>` endpoint filter. In-box, no extra dep, swap-out is cheap if Phase 2 needs FluentValidation.
 - **Webhook payload:** snake_case JSON `{ event_id, event_type, timestamp, ticket{...} }`. HMAC-SHA256 over the raw body, header `X-Resolution-Signature: sha256=<hex>`. `event_id` is the receiver-side dedup key.
@@ -343,3 +344,12 @@ Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `h
 - GUID-based routes → 404 (by design)
 
 → Decision recorded: `.squad/decisions.md` / "Hicks — Ticket Detail Contract" (2026-05-07)
+
+
+### 2026-05-07 — Final Ticket Detail Status Updates & API Deployment
+- **Outcome:** Implemented ticket detail status updates with native Escalated state
+- **Backend contract:** API supports native Escalated status; PUT /api/tickets/{id} normalizes legacy escalation payload (state=InProgress + agentAction=escalated_to_human) to persisted Escalated
+- **Deployment:** ca-api revision 0000014 deployed to `ca-api-tocqjp4pnegfo` with image hash hicks-final-status-read-20260507024330
+- **Validation:** GET /api/tickets/{number}/details shows persisted Resolved/Escalated statuses; INC0010102 resolved; INC0010103 escalated; INC0010104 resolver result confirmed
+- **Decision recorded:** `.squad/decisions.md` / "Hicks — Ticket Detail Final Status Contract" (2026-05-07)
+- **Status:** Live and verified

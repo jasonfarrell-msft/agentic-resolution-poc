@@ -325,11 +325,24 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
 - HTTP-only validation was used; browser automation was not run in this environment.
 
 ## Learnings
+### 2026-05-07 — Resolve with AI button no-op fixed
+
+- **Root cause**: Ticket detail rendered successfully, but the Blazor app shell did not opt `Routes`/`HeadOutlet` into Interactive Server render mode, so `@onclick` handlers were not hydrated; the navigation-only Resolve button therefore appeared to do nothing.
+- **Files changed**: `src/dotnet/AgenticResolution.Web/Components/App.razor` enables `InteractiveServer`; `src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor` now uses a real href to `/tickets/{Number}/resolve` for resilient navigation.
+- **Deployment**: Published and zip-deployed `src/dotnet/AgenticResolution.Web` to App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- **Validation**: `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded; local and live HTTP checks confirmed ticket `INC0010101` renders a Resolve link to `/tickets/INC0010101/resolve`, and the resolve route returns the progress page.
+
 
 ### 2026-05-07 — Ticket detail SSR load fix
 - **Root cause:** `Components/Pages/Tickets/Detail.razor` started `LoadDetailsAsync` as fire-and-forget from `OnParametersSetAsync`. Because the app renders pages with static SSR unless an interactive render mode is applied, the live detail route prerendered only the loading skeleton and did not include ticket data in the initial response.
 - **Files changed:** `src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor` now awaits detail loading during `OnParametersSetAsync`; `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs` now URL-encodes the ticket number when composing `/api/tickets/{number}/details`.
 - **Validation:** `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded with .NET 10 from `~/.dotnet`. Local SSR validation against ca-api showed `INC0010102` detail content rendered, then the web app was deployed to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`; live `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` renders ticket detail content and no longer stays loading-only. Confirmed the web app's own `/api/tickets/INC0010102/details` returns the intentional 404 guard, so detail data comes from the configured tickets API base URL rather than the Blazor route.
+
+### 2026-05-07 — Ticket detail list navigation
+- **Root cause/user need:** The ticket detail page preserved Resolve with AI and detail content, but its primary header had no always-visible path back to `/tickets`, making list/detail triage feel like a dead end.
+- **Files changed:** `src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor` adds Bootstrap outline-secondary back-to-list links near the header, in the not-found state, and after the long detail content.
+- **Deployment:** Published and zip-deployed `src/dotnet/AgenticResolution.Web` to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- **Validation:** `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded with .NET 10 from `~/.dotnet`; source and live checks confirmed detail markup includes `href="/tickets"` and “Back to ticket list” on `/tickets/INC0010104`.
 
 ---
 
@@ -353,3 +366,24 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
 - Live URL `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` shows full detail data
 
 → Decision recorded: `.squad/decisions.md` / "Ferro — Ticket Detail Static SSR Loading Fix" (2026-05-07)
+
+### 2026-05-07 — Resolving screen terminal-result UX fix
+- **Root cause:** `ResolutionEvent.IsTerminal` treated any `status: "completed"` event as terminal. The Python SSE stream emits `completed` for ordinary executor stages, so the resolving page could show completion UI before the workflow emitted its terminal `resolved`/`escalated` event.
+- **Files changed:** `src/dotnet/AgenticResolution.Web/Services/ResolutionApiClient.cs` now requires an explicit terminal flag or result-specific terminal status; `Components/Pages/Tickets/RunProgress.razor` now shows completion UI only after terminal result, labels resolved vs. escalated, and provides a Ticket Detail link instead of auto-redirecting; `Components/Pages/Tickets/Detail.razor` and `Services/TicketApiClient.cs` now surface escalated agent action as ticket detail status when present.
+- **Deployment:** Published and zip-deployed `src/dotnet/AgenticResolution.Web` to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- **Validation:** `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded. A terminal parsing check confirmed stage-level `completed` is non-terminal while terminal `resolved`/`escalated` events are recognized. Live `/tickets/INC0010102/resolve` initially rendered only the running state (no "Resolution Complete"); live resolution API completed with terminal `resolved`; live `/tickets/INC0010102?refresh=live-validation` rendered the updated Resolved status.
+
+### 2026-05-07 — Resolving Screen Final Result Display & Detail Navigation
+- **Outcome 1:** Fixed resolving screen to wait for terminal SSE event before showing result
+  - Removed static ticket status from resolving screen
+  - Completion UI now displays resolved/escalated result with clear Ticket Detail link
+  - Removed auto-redirect in favor of explicit user action
+  - Deployed to app-agentic-resolution-web
+- **Outcome 2:** Added detail-page ticket list navigation
+  - Bootstrap btn-outline-secondary "← Back to ticket list" link near detail header
+  - Secondary link placement after long detail content for scroll-free navigation
+  - Live validation: /tickets/INC0010104 verified with working back button
+- **Decisions recorded:**
+  - `.squad/decisions.md` / "Ferro — Resolving Screen Result Link" (2026-05-07)
+  - `.squad/decisions.md` / "Ferro — Ticket Detail Back-to-List Navigation" (2026-05-07)
+- **Status:** Deployed and live
