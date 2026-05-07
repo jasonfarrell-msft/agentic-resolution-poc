@@ -135,40 +135,6 @@ else
         }
     </div>
 
-    <div class="detail-card">
-        <h4>Workflow Runs</h4>
-        @if (OrderedRuns.Count == 0)
-        {
-            <div class="empty-state">No workflow runs yet.</div>
-        }
-        else
-        {
-            <div class="run-list">
-                @foreach (var run in OrderedRuns)
-                {
-                    <div class="run-card">
-                        <div class="run-card-header">
-                            <RunStatusBadge Status="run.Status" />
-                            <a class="btn btn-sm btn-outline-secondary" href="@($"/tickets/{Number}/runs/{run.Id}")">View Run</a>
-                        </div>
-                        <div class="ticket-meta">
-                            <span>Triggered by @(!string.IsNullOrWhiteSpace(run.TriggeredBy) ? run.TriggeredBy : "Automation")</span>
-                            <span>Started @run.StartedAt.ToLocalTime().ToString("g")</span>
-                            @if (run.CompletedAt is not null)
-                            {
-                                <span>Completed @run.CompletedAt.Value.ToLocalTime().ToString("g")</span>
-                            }
-                        </div>
-                        @if (!string.IsNullOrWhiteSpace(run.FinalAction))
-                        {
-                            <div class="mt-2"><strong>Final Action:</strong> @run.FinalAction</div>
-                        }
-                    </div>
-                }
-            </div>
-        }
-    </div>
-
     <div class="mt-4">
         <a class="btn btn-outline-secondary" href="/tickets" aria-label="Back to ticket list">← Back to ticket list</a>
     </div>
@@ -234,11 +200,6 @@ else
         Details is null
             ? Array.Empty<CommentResponse>()
             : Details.Comments.OrderBy(comment => comment.CreatedAt).ToList();
-
-    private IReadOnlyList<WorkflowRunResponse> OrderedRuns =>
-        Details is null
-            ? Array.Empty<WorkflowRunResponse>()
-            : Details.Runs.OrderByDescending(run => run.StartedAt).ToList();
 
     private bool CanResolve =>
         Details?.Ticket.State is TicketState.New or TicketState.InProgress;

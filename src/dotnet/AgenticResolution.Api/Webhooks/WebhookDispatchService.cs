@@ -160,28 +160,13 @@ public record TicketWebhookSnapshot(string Number, string ShortDescription, stri
             t.State.ToString(), t.Caller, null, t.CreatedAt);
 }
 
-public record WebhookPayload(Guid EventId, string EventType, DateTime Timestamp, TicketWebhookSnapshot Ticket, Guid? RunId = null, string? ErrorMessage = null)
+public record WebhookPayload(Guid EventId, string EventType, DateTime Timestamp, TicketWebhookSnapshot Ticket)
 {
     public static WebhookPayload ForTicketCreated(Ticket t) =>
         new(Guid.NewGuid(), "ticket.created", DateTime.UtcNow, TicketWebhookSnapshot.From(t));
 
     public static WebhookPayload ForTicketUpdated(Ticket t) =>
         new(Guid.NewGuid(), "ticket.updated", DateTime.UtcNow, TicketWebhookSnapshot.From(t));
-
-    public static WebhookPayload ForResolutionStarted(Ticket t, Guid runId) =>
-        new(Guid.NewGuid(), "resolution.started", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
-
-    public static WebhookPayload ForWorkflowRunning(Ticket t, Guid runId) =>
-        new(Guid.NewGuid(), "workflow.running", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
-
-    public static WebhookPayload ForWorkflowCompleted(Ticket t, Guid runId) =>
-        new(Guid.NewGuid(), "workflow.completed", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
-
-    public static WebhookPayload ForWorkflowEscalated(Ticket t, Guid runId) =>
-        new(Guid.NewGuid(), "workflow.escalated", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId);
-
-    public static WebhookPayload ForWorkflowFailed(Ticket t, Guid runId, string errorMessage) =>
-        new(Guid.NewGuid(), "workflow.failed", DateTime.UtcNow, TicketWebhookSnapshot.From(t), runId, errorMessage);
 }
 
 public record WebhookEnvelope(WebhookPayload Payload, int Attempt = 0);

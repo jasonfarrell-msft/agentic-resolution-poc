@@ -111,7 +111,7 @@ END
             Console.Error.WriteLine($"[Startup] KnowledgeArticles fallback failed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        // Force-create Comments, WorkflowRuns, WorkflowRunEvents tables; swallow "already exists" errors.
+        // Force-create Comments table; swallow "already exists" errors.
         try
         {
             await db.Database.ExecuteSqlRawAsync(@"
@@ -128,44 +128,12 @@ BEGIN TRY
     );
     CREATE INDEX [IX_Comments_TicketId] ON [Comments] ([TicketId]);
 END TRY BEGIN CATCH END CATCH
-
-BEGIN TRY
-    CREATE TABLE [WorkflowRuns] (
-        [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
-        [TicketId] uniqueidentifier NOT NULL,
-        [Status] int NOT NULL DEFAULT 0,
-        [TriggeredBy] nvarchar(100) NULL,
-        [Note] nvarchar(500) NULL,
-        [StartedAt] datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
-        [CompletedAt] datetime2 NULL,
-        [FinalAction] nvarchar(100) NULL,
-        [FinalConfidence] float NULL,
-        CONSTRAINT [PK_WorkflowRuns] PRIMARY KEY ([Id]),
-        CONSTRAINT [FK_WorkflowRuns_Tickets_TicketId] FOREIGN KEY ([TicketId]) REFERENCES [Tickets] ([Id]) ON DELETE CASCADE
-    );
-    CREATE INDEX [IX_WorkflowRuns_TicketId_Status] ON [WorkflowRuns] ([TicketId], [Status]);
-END TRY BEGIN CATCH END CATCH
-
-BEGIN TRY
-    CREATE TABLE [WorkflowRunEvents] (
-        [Id] uniqueidentifier NOT NULL DEFAULT NEWSEQUENTIALID(),
-        [RunId] uniqueidentifier NOT NULL,
-        [Sequence] int NOT NULL DEFAULT 0,
-        [ExecutorId] nvarchar(100) NULL,
-        [EventType] nvarchar(50) NOT NULL,
-        [Payload] nvarchar(max) NULL,
-        [Timestamp] datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
-        CONSTRAINT [PK_WorkflowRunEvents] PRIMARY KEY ([Id]),
-        CONSTRAINT [FK_WorkflowRunEvents_WorkflowRuns_RunId] FOREIGN KEY ([RunId]) REFERENCES [WorkflowRuns] ([Id]) ON DELETE CASCADE
-    );
-    CREATE UNIQUE INDEX [IX_WorkflowRunEvents_RunId_Sequence] ON [WorkflowRunEvents] ([RunId], [Sequence]);
-END TRY BEGIN CATCH END CATCH
 ");
-            Console.WriteLine("[Startup] Comments/WorkflowRuns table check completed.");
+            Console.WriteLine("[Startup] Comments table check completed.");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[Startup] Comments/WorkflowRuns fallback failed: {ex.GetType().Name}: {ex.Message}");
+            Console.Error.WriteLine($"[Startup] Comments fallback failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }

@@ -107,40 +107,6 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             b.HasData(new { Id = 1, LastValue = 10000L });
         });
 
-        modelBuilder.Entity("AgenticResolution.Api.Models.WorkflowRun", b =>
-        {
-            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uniqueidentifier")
-                .HasDefaultValueSql("NEWSEQUENTIALID()");
-            b.Property<DateTime?>("CompletedAt").HasColumnType("datetime2");
-            b.Property<string>("FinalAction").HasMaxLength(100).HasColumnType("nvarchar(100)");
-            b.Property<double?>("FinalConfidence").HasColumnType("float");
-            b.Property<string>("Note").HasMaxLength(500).HasColumnType("nvarchar(500)");
-            b.Property<DateTime>("StartedAt").ValueGeneratedOnAdd().HasColumnType("datetime2")
-                .HasDefaultValueSql("SYSUTCDATETIME()");
-            b.Property<int>("Status").HasColumnType("int");
-            b.Property<Guid>("TicketId").HasColumnType("uniqueidentifier");
-            b.Property<string>("TriggeredBy").HasMaxLength(100).HasColumnType("nvarchar(100)");
-            b.HasKey("Id");
-            b.HasIndex("TicketId", "Status");
-            b.ToTable("WorkflowRuns");
-        });
-
-        modelBuilder.Entity("AgenticResolution.Api.Models.WorkflowRunEvent", b =>
-        {
-            b.Property<Guid>("Id").ValueGeneratedOnAdd().HasColumnType("uniqueidentifier")
-                .HasDefaultValueSql("NEWSEQUENTIALID()");
-            b.Property<string>("EventType").IsRequired().HasMaxLength(50).HasColumnType("nvarchar(50)");
-            b.Property<string>("ExecutorId").HasMaxLength(100).HasColumnType("nvarchar(100)");
-            b.Property<string>("Payload").HasColumnType("nvarchar(max)");
-            b.Property<Guid>("RunId").HasColumnType("uniqueidentifier");
-            b.Property<int>("Sequence").HasColumnType("int");
-            b.Property<DateTime>("Timestamp").ValueGeneratedOnAdd().HasColumnType("datetime2")
-                .HasDefaultValueSql("SYSUTCDATETIME()");
-            b.HasKey("Id");
-            b.HasIndex("RunId", "Sequence");
-            b.ToTable("WorkflowRunEvents");
-        });
-
         modelBuilder.Entity("AgenticResolution.Api.Models.TicketComment", b =>
         {
             b.HasOne("AgenticResolution.Api.Models.Ticket", "Ticket")
@@ -149,31 +115,6 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
             b.Navigation("Ticket");
-        });
-
-        modelBuilder.Entity("AgenticResolution.Api.Models.WorkflowRun", b =>
-        {
-            b.HasOne("AgenticResolution.Api.Models.Ticket", "Ticket")
-                .WithMany()
-                .HasForeignKey("TicketId")
-                .OnDelete(DeleteBehavior.Cascade)
-                .IsRequired();
-            b.Navigation("Ticket");
-        });
-
-        modelBuilder.Entity("AgenticResolution.Api.Models.WorkflowRunEvent", b =>
-        {
-            b.HasOne("AgenticResolution.Api.Models.WorkflowRun", "Run")
-                .WithMany("Events")
-                .HasForeignKey("RunId")
-                .OnDelete(DeleteBehavior.Cascade)
-                .IsRequired();
-            b.Navigation("Run");
-        });
-
-        modelBuilder.Entity("AgenticResolution.Api.Models.WorkflowRun", b =>
-        {
-            b.Navigation("Events");
         });
     }
 }

@@ -53,24 +53,7 @@ public record CreateCommentRequest(
     [property: Required, StringLength(4000, MinimumLength = 1)] string Body,
     bool IsInternal = false);
 
-public record WorkflowRunEventResponse(Guid Id, int Sequence, string? ExecutorId, string EventType, string? Payload, DateTime Timestamp)
-{
-    public static WorkflowRunEventResponse From(WorkflowRunEvent e) =>
-        new(e.Id, e.Sequence, e.ExecutorId, e.EventType, e.Payload, e.Timestamp);
-}
-
-public record WorkflowRunResponse(Guid Id, Guid TicketId, string TicketNumber, WorkflowRunStatus Status,
-    string? TriggeredBy, string? Note, DateTime StartedAt, DateTime? CompletedAt,
-    string? FinalAction, double? FinalConfidence, IReadOnlyList<WorkflowRunEventResponse> Events)
-{
-    public static WorkflowRunResponse From(WorkflowRun run, string ticketNumber) =>
-        new(run.Id, run.TicketId, ticketNumber, run.Status, run.TriggeredBy, run.Note,
-            run.StartedAt, run.CompletedAt, run.FinalAction, run.FinalConfidence,
-            run.Events.OrderBy(e => e.Sequence).Select(WorkflowRunEventResponse.From).ToList());
-}
-
-public record TicketDetailResponse(TicketResponse Ticket, IReadOnlyList<CommentResponse> Comments,
-    IReadOnlyList<WorkflowRunResponse> Runs);
+public record TicketDetailResponse(TicketResponse Ticket, IReadOnlyList<CommentResponse> Comments);
 
 public static class TicketsEndpoints
 {
@@ -262,16 +245,8 @@ public static class TicketsEndpoints
             .Select(c => CommentResponse.From(c))
             .ToListAsync(ct);
 
-        var runs = (await db.WorkflowRuns.AsNoTracking()
-            .Include(r => r.Events)
-            .Where(r => r.TicketId == ticket.Id)
-            .OrderByDescending(r => r.StartedAt)
-            .ToListAsync(ct))
-            .Select(r => WorkflowRunResponse.From(r, ticket.Number))
-            .ToList();
-
         return TypedResults.Ok(new TicketDetailResponse(
-            TicketResponse.From(ticket), comments, runs));
+            TicketResponse.From(ticket), comments));
     }
 
     private static async Task<Results<Ok<IReadOnlyList<CommentResponse>>, NotFound>> GetCommentsAsync(

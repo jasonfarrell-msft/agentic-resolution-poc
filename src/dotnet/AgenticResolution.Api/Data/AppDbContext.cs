@@ -8,8 +8,6 @@ public class AppDbContext : DbContext
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<TicketNumberSequence> TicketNumberSequences => Set<TicketNumberSequence>();
     public DbSet<TicketComment> Comments => Set<TicketComment>();
-    public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
-    public DbSet<WorkflowRunEvent> WorkflowRunEvents => Set<WorkflowRunEvent>();
     public DbSet<KnowledgeArticle> KnowledgeArticles => Set<KnowledgeArticle>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -49,32 +47,6 @@ public class AppDbContext : DbContext
             .HasForeignKey(c => c.TicketId)
             .OnDelete(DeleteBehavior.Cascade);
         comment.HasIndex(c => c.TicketId);
-
-        var run = modelBuilder.Entity<WorkflowRun>();
-        run.HasKey(r => r.Id);
-        run.Property(r => r.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
-        run.Property(r => r.Status).HasConversion<int>();
-        run.Property(r => r.TriggeredBy).HasMaxLength(100);
-        run.Property(r => r.Note).HasMaxLength(500);
-        run.Property(r => r.StartedAt).HasDefaultValueSql("SYSUTCDATETIME()");
-        run.Property(r => r.FinalAction).HasMaxLength(100);
-        run.HasOne(r => r.Ticket)
-            .WithMany()
-            .HasForeignKey(r => r.TicketId)
-            .OnDelete(DeleteBehavior.Cascade);
-        run.HasIndex(r => new { r.TicketId, r.Status });
-
-        var evt = modelBuilder.Entity<WorkflowRunEvent>();
-        evt.HasKey(e => e.Id);
-        evt.Property(e => e.Id).HasDefaultValueSql("NEWSEQUENTIALID()");
-        evt.Property(e => e.ExecutorId).HasMaxLength(100);
-        evt.Property(e => e.EventType).IsRequired().HasMaxLength(50);
-        evt.Property(e => e.Timestamp).HasDefaultValueSql("SYSUTCDATETIME()");
-        evt.HasOne(e => e.Run)
-            .WithMany(r => r.Events)
-            .HasForeignKey(e => e.RunId)
-            .OnDelete(DeleteBehavior.Cascade);
-        evt.HasIndex(e => new { e.RunId, e.Sequence });
 
         var seq = modelBuilder.Entity<TicketNumberSequence>();
         seq.HasKey(s => s.Id);

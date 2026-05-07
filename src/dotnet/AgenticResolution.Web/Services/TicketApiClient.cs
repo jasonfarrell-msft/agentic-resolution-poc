@@ -172,7 +172,6 @@ public sealed record TicketDetailResponse
 {
     public TicketResponse Ticket { get; init; } = new();
     public IReadOnlyList<CommentResponse> Comments { get; init; } = Array.Empty<CommentResponse>();
-    public IReadOnlyList<WorkflowRunResponse> Runs { get; init; } = Array.Empty<WorkflowRunResponse>();
 }
 
 public sealed record TicketResponse
@@ -205,31 +204,6 @@ public sealed record CommentResponse
     public bool IsInternal { get; init; }
 }
 
-public sealed record WorkflowRunResponse
-{
-    public Guid Id { get; init; }
-    public Guid TicketId { get; init; }
-    public string TicketNumber { get; init; } = string.Empty;
-    public WorkflowRunStatus Status { get; init; }
-    public string? TriggeredBy { get; init; }
-    public string? Note { get; init; }
-    public DateTime StartedAt { get; init; }
-    public DateTime? CompletedAt { get; init; }
-    public string? FinalAction { get; init; }
-    public double? FinalConfidence { get; init; }
-    public IReadOnlyList<WorkflowRunEventResponse> Events { get; init; } = Array.Empty<WorkflowRunEventResponse>();
-}
-
-public sealed record WorkflowRunEventResponse
-{
-    public Guid Id { get; init; }
-    public int Sequence { get; init; }
-    public string? ExecutorId { get; init; }
-    public string EventType { get; init; } = string.Empty;
-    public string? Payload { get; init; }
-    public DateTime Timestamp { get; init; }
-}
-
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TicketPriority
 {
@@ -249,16 +223,6 @@ public enum TicketState
     Closed = 4,
     Cancelled = 5,
     Escalated = 6
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum WorkflowRunStatus
-{
-    Pending = 0,
-    Running = 1,
-    Completed = 2,
-    Failed = 3,
-    Escalated = 4
 }
 
 public enum TicketSortField
