@@ -47,6 +47,7 @@
 
 ## Learnings
 
+- **Ticket detail contract (2026-05-07):** Detail fetch is by ticket number, not GUID. Live ca-api evidence from `rg-agentic-res-src-dev`: `GET /api/tickets?page=1&pageSize=1` returned 200 with 98 total tickets and sample `INC0010102` / `bcd0df92-9b6b-4f17-982a-c1989924edbc`; `GET /api/tickets/INC0010102/details` returned 200 JSON with `ticket`, `comments`, and `runs`; `GET /api/tickets/INC0010102` returned 200 single-ticket JSON; GUID forms `/api/tickets/{id}` and `/api/tickets/{id}/details` returned 404. Blazor detail route `/tickets/{Number}` calls `TicketApiClient.GetTicketDetailsAsync(number)`, which correctly calls `api/tickets/{number}/details`. Source API DTO was aligned to include `runs` with workflow events so future deploys preserve the production contract.
 - **Validation:** DataAnnotations + a generic `ValidationFilter<T>` endpoint filter. In-box, no extra dep, swap-out is cheap if Phase 2 needs FluentValidation.
 - **Webhook payload:** snake_case JSON `{ event_id, event_type, timestamp, ticket{...} }`. HMAC-SHA256 over the raw body, header `X-Resolution-Signature: sha256=<hex>`. `event_id` is the receiver-side dedup key.
 - **Retry policy:** 3 retries on top of initial attempt (4 total) at 1s, 4s, 16s. No jitter (single dispatcher). Permanent failure logs Error and drops; no DLQ in Phase 1.
@@ -322,3 +323,23 @@ From Ferro (Frontend Dev): Ticket loading failure was caused by missing `ApiClie
 Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/api/tickets`. Set missing App Service settings. Verified live `GET /api/tickets?page=1&pageSize=1` returns 200 JSON with 98 available tickets. Hardened `TicketApiClient` against HTML-as-JSON responses. Status: Complete, `dotnet build` passed.
 
 **Collaboration note:** Ferro applied frontend configuration fix to prioritize environment-set `TICKETS_API_URL`. Both backend and frontend work complete.
+
+---
+
+## 2026-05-07 — Ticket Detail Contract Verified
+
+✅ **API Verification Complete**
+
+- **Health:** ca-api deployed and responsive at `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+- **Tickets endpoint:** `GET /api/tickets?page=1&pageSize=1` returned 200 with 98 total tickets in system
+- **Sample ticket:** INC0010102 (GUID: `bcd0df92-9b6b-4f17-982a-c1989924edbc`)
+- **Detail endpoint:** `GET /api/tickets/INC0010102/details` returned 200 with `{ ticket, comments, runs }` payload
+- **Contract locked:** Number-based routing confirmed; GUID routes return 404 as expected
+- **Source API:** Detail DTO aligned to include runs; dotnet build validated
+
+**Contract Summary:**
+- `GET /api/tickets/{number}` → single ticket summary
+- `GET /api/tickets/{number}/details` → detail payload + comments + runs
+- GUID-based routes → 404 (by design)
+
+→ Decision recorded: `.squad/decisions.md` / "Hicks — Ticket Detail Contract" (2026-05-07)

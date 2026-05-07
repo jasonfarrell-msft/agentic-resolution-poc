@@ -323,3 +323,33 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
 - Confirmed App Service settings include `ApiClient__BaseUrl` and `TICKETS_API_URL` pointing at the tickets Container App, plus `ResolutionApi__BaseUrl` pointing at the resolution Container App.
 - Verified live `https://app-agentic-resolution-web.azurewebsites.net/tickets` returns HTTP 200, renders ticket rows, and the returned markup does not contain the previous API URL precedence/localhost error text.
 - HTTP-only validation was used; browser automation was not run in this environment.
+
+## Learnings
+
+### 2026-05-07 — Ticket detail SSR load fix
+- **Root cause:** `Components/Pages/Tickets/Detail.razor` started `LoadDetailsAsync` as fire-and-forget from `OnParametersSetAsync`. Because the app renders pages with static SSR unless an interactive render mode is applied, the live detail route prerendered only the loading skeleton and did not include ticket data in the initial response.
+- **Files changed:** `src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor` now awaits detail loading during `OnParametersSetAsync`; `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs` now URL-encodes the ticket number when composing `/api/tickets/{number}/details`.
+- **Validation:** `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded with .NET 10 from `~/.dotnet`. Local SSR validation against ca-api showed `INC0010102` detail content rendered, then the web app was deployed to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`; live `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` renders ticket detail content and no longer stays loading-only. Confirmed the web app's own `/api/tickets/INC0010102/details` returns the intentional 404 guard, so detail data comes from the configured tickets API base URL rather than the Blazor route.
+
+---
+
+## 2026-05-07 — Ticket Detail SSR Loading Fix
+
+✅ **Implemented and Deployed**
+
+**Root Cause:** Detail page was fire-and-forget loading in `OnParametersSetAsync`, so server-side prerender only shipped loading skeleton.
+
+**Fix Applied:**
+- `Detail.razor`: Changed lifecycle to await `StartLoadingDetailsAsync()` so `/tickets/{Number}` prerenders actual detail data before response sent
+- `TicketApiClient.cs`: Added URL encoding for ticket number before calling detail endpoint
+
+**Build & Deploy:**
+- `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded (.NET 10)
+- Deployed to App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`
+- Live route `/tickets/INC0010102` now renders ticket detail content (no skeleton)
+
+**Validation:**
+- Local detail page rendered live ticket INC0010102 from ca-api
+- Live URL `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` shows full detail data
+
+→ Decision recorded: `.squad/decisions.md` / "Ferro — Ticket Detail Static SSR Loading Fix" (2026-05-07)

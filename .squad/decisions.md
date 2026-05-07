@@ -699,3 +699,49 @@ Container/service compatibility: `TICKETS_API_URL` is also accepted.
 ---
 
 **Earlier decisions archived to `decisions-archive-2026-04-29.md`** (Phase 1 scope, resources, test infrastructure, etc.)
+
+---
+
+### 2026-05-07: Hicks — Ticket Detail Contract
+
+**Status:** Verified 2026-05-07  
+**Scope:** .NET CRUD API and Blazor ticket detail page
+
+**Decision:** Ticket detail lookup is by ticket **number**, not ticket GUID.
+
+Expected backend paths on the deployed CRUD API:
+
+- `GET /api/tickets/{number}` returns the single ticket summary/body.
+- `GET /api/tickets/{number}/details` returns `{ ticket, comments, runs }` for the detail page.
+- `GET /api/tickets/{id}` and `GET /api/tickets/{id}/details` are not supported and return 404.
+
+**Evidence:** Against `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io` in `rg-agentic-res-src-dev`:
+
+- `GET /api/tickets?page=1&pageSize=1` returned 200 JSON with 98 total tickets and sample ticket `INC0010102` / `bcd0df92-9b6b-4f17-982a-c1989924edbc`.
+- `GET /api/tickets/INC0010102/details` returned 200 JSON with keys `ticket`, `comments`, `runs`.
+- `GET /api/tickets/INC0010102` returned 200 JSON for the single ticket.
+- `GET /api/tickets/bcd0df92-9b6b-4f17-982a-c1989924edbc/details` returned 404.
+- `GET /api/tickets/bcd0df92-9b6b-4f17-982a-c1989924edbc` returned 404.
+
+**Frontend Contract:** Blazor owns the UI route `/tickets/{Number}`. It must call the CRUD API path `api/tickets/{number}/details` using the configured ca-api base URL, not the web app host and not the ticket GUID.
+
+---
+
+### 2026-05-07: Ferro — Ticket Detail Static SSR Loading Fix
+
+**Date:** 2026-05-07  
+**Status:** Implemented and deployed
+
+**Decision:** Ticket detail pages must await their initial API load in the Razor lifecycle when the data is required for first render. Do not use fire-and-forget startup loading for detail pages unless the component/page is explicitly interactive and has a clear post-render loading strategy.
+
+**Rationale:** The deployed Blazor Web App currently renders pages with static SSR by default. The ticket detail route `/tickets/{Number}` was starting `LoadDetailsAsync` in the background from `OnParametersSetAsync`, so the server response contained only the loading skeleton even though the tickets API endpoint was healthy.
+
+**Implementation:**
+- `Detail.razor`: changed `OnParametersSetAsync` to await `StartLoadingDetailsAsync()` so `/tickets/{Number}` prerenders actual detail data.
+- `TicketApiClient.cs`: URL-encodes the ticket number before calling `/api/tickets/{number}/details`.
+
+**Validation:**
+- `dotnet build src/dotnet/AgenticResolution.sln --nologo` succeeded using .NET 10 from `~/.dotnet`.
+- Local detail page rendered live ticket `INC0010102` from ca-api.
+- Deployed to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
+- Live detail route `https://app-agentic-resolution-web.azurewebsites.net/tickets/INC0010102` renders ticket detail content and no longer remains on the loading skeleton.
