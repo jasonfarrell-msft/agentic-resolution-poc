@@ -32,4 +32,4 @@
 ## Orchestration Log
 
 **2026-04-29 Phase 1 Closure:**  
-Blazor frontend live in Azure (RG: `rg-agentic-res-agentic-resolution-dev`, East US 2; app-service URL captured in decisions). Priority enum + DTO alignment shipped; Bicep refactored for Entra-only SQL auth (MCAPS compliance). Vasquez Phase 2 SQL test plan ready (Testcontainers recommended). Bishop unblocked for Phase 2 AI Search + Foundry Agents integration when Jason kicks off.
+Blazor frontend live in Azure (RG: `rg-agentic-res-src-dev`, East US 2; app-service URL captured in decisions). Priority enum + DTO alignment shipped; Bicep refactored for Entra-only SQL auth (MCAPS compliance). Vasquez Phase 2 SQL test plan ready (Testcontainers recommended). Bishop unblocked for Phase 2 AI Search + Foundry Agents integration when Jason kicks off.

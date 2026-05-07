@@ -36,6 +36,7 @@
 - **Resolution queue enqueue (2026-07-25):** `POST /api/tickets/{number}/resolve` was creating a `WorkflowRun` but never feeding `IResolutionQueue`. Injected `IResolutionQueue` into the endpoint and called `Enqueue(new ResolutionRunRequest(...))` after save. The `ResolutionRunnerService` background worker now receives work via its channel.
 - **Synthetic progress events removed (2026-07-25):** `AgentOrchestrationService.ProcessTicketAsync` was firing premature Started+Completed events for ClassifierExecutor and IncidentFetchExecutor before any real work. Removed Completed for Classifier (only fires Started + Routed now) and removed IncidentFetchExecutor entirely — the agent call fires under IncidentDecomposerExecutor Started/Completed. Step events should only mark Completed when actual executor work finishes.
 - **Architecture note (agents):** There is no `Agents:IncidentUrl` in the real system. Agents use Agent Framework with defined Executors; the orchestration service's `_config["Agents:IncidentUrl"]` is a stub that will be replaced by proper executor invocation.
+- **Ticket list loading (2026-05-07):** The deployed .NET CRUD API `GET /api/tickets` is healthy and returns camelCase JSON with string enums from `ca-api-tocqjp4pnegfo`; Blazor Server must have `ApiClient:BaseUrl`/`ApiClient__BaseUrl` set to that ca-api URL. Source paths: `src/dotnet/AgenticResolution.Api/Api/TicketsEndpoints.cs`, `src/dotnet/AgenticResolution.Web/Services/TicketApiClient.cs`, `infra/resources.bicep`.
 
 
 ## 2026-04-29 — Priority enum flip + Phase 1 Azure deploy
@@ -47,7 +48,7 @@
 - `dotnet build` clean (0/0). Smoke POST with `priority:3` round-tripped as Moderate.
 
 ### Azure deploy (Phase 1)
-- **RG:** `rg-agentic-res-agentic-resolution-dev` in **East US 2**, sub TSJasonFarrell-Sub.
+- **RG:** `rg-agentic-res-src-dev` in **East US 2**, sub TSJasonFarrell-Sub.
 - Resources: App Service (B1 Linux, .NET 10) + Azure SQL (Basic 5 DTU) + Key Vault + User-Assigned MI + App Insights + Log Analytics.
 - App URL: `https://app-agentic-res-agentic-resolution-dev-ie6eryvrpccqa.azurewebsites.net`.
 - **Bicep refactor required for MCAPS policy:** `AzureSQL_WithoutAzureADOnlyAuthentication_Deny` blocked SQL admin login/password. Refactored to subscription-scope `main.bicep` + RG-scope `resources.bicep`; SQL uses Entra-only auth with the User-Assigned MI as Entra admin (principalType Application). App connects via `Authentication=Active Directory Default` and `AZURE_CLIENT_ID` env var pinned to the MI's clientId.
@@ -273,3 +274,20 @@ The architecture pivoted. The .NET API (TicketsNow) remains as a basic CRUD API 
 ### Key Decision
 TicketsNow is a **fixed interface contract** simulating ServiceNow. No client can add new endpoints to ServiceNow, so the .NET API remains minimal. Python Resolution API is the orchestration layer calling the .NET API for ticket data/updates.
 
+
+### Cross-Agent Update: Frontend Configuration Fix (2026-05-07)
+
+From Ferro (Frontend Dev): Ticket loading failure was caused by missing `ApiClient:BaseUrl` configuration in production Blazor settings.
+
+**Fix applied:**
+- `appsettings.json` now includes deployed ca-api URL: `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+- `Program.cs` falls back to `TICKETS_API_URL` env var (aligns with Python Resolution API naming)
+- `infra/resources.bicep` now persists both frontend app settings (`ApiClient__BaseUrl` and `ResolutionApi__BaseUrl`)
+- `Index.razor` awaits initial load from `OnInitializedAsync`
+- `TicketApiClient` returns detailed error status/body on API failures
+
+**Implication:** CRUD API endpoints are healthy and untouched. No backend changes needed.
+
+**Shared blocker:** Local dotnet build requires .NET 10; host has .NET 9 only. Cannot validate via local build.
+
+---

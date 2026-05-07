@@ -6,56 +6,17 @@
 ---
 
 ## Table of Contents
-1. [Architecture: Solution Split](#architecture-solution-split)
-2. [Foundry Resource Types: Modern (AIServices)](#foundry-modern-resource-type)
-3. [Webhook Receiver: Container App](#webhook-container-app)
-4. [AI Services & Foundry Connection](#aiservices-foundry-connection)
-5. [Classification & Routing Layer](#classification-routing)
-6. [Foundry Agent Wiring (Deprecated SDK)](#foundry-agent-wiring-deprecated)
-7. [Hosted Agent Containers (Current)](#hosted-agent-containers)
-8. [MCP Server Design](#mcp-server-design)
-9. [Phase 2 Bicep IaC](#phase-2-bicep)
-10. [Resolution Pipeline: Question-Driven KB](#resolution-pipeline-redesign)
+1. [Foundry Resource Types: Modern (AIServices)](#foundry-modern-resource-type)
+2. [Webhook Receiver: Container App](#webhook-container-app)
+3. [AI Services & Foundry Connection](#aiservices-foundry-connection)
+4. [Classification & Routing Layer](#classification-routing)
+5. [Foundry Agent Wiring (Deprecated SDK)](#foundry-agent-wiring-deprecated)
+6. [Hosted Agent Containers (Current)](#hosted-agent-containers)
+7. [MCP Server Design](#mcp-server-design)
+8. [Phase 2 Bicep IaC](#phase-2-bicep)
+9. [Resolution Pipeline: Question-Driven KB](#resolution-pipeline-redesign)
+10. [Ticket Loading Configuration Fix](#ticket-loading-configuration-fix)
 11. [Directives from Leadership](#leadership-directives)
-
----
-
-## Architecture: Solution Split
-
-**Date:** 2025-07-25  
-**Author:** Apone (Lead/Architect)  
-**Status:** ✅ Implemented by Hicks (2026-04-30)
-
-### Decision
-Split monolithic Blazor server into three-project layout:
-- **AgenticResolution.Api** — EF Core, SQL, webhooks, CRUD endpoints
-- **AgenticResolution.Web** — Blazor UI only, calls Api over HTTP
-- **AgenticResolution.McpServer** — MCP wrapper around Api, exposes tools to Foundry agents
-
-### Rationale
-- Independent scaling (UI vs. data layer)
-- Clean security boundary (only Api touches SQL)
-- MCP server access requires separate process
-- Jason's explicit requirement
-
-### Implementation
-| Component | Location | Port (dev) | Azure |
-|-----------|----------|-----------|-------|
-| Api | `src/AgenticResolution.Api/` | 5001 | App Service (new) |
-| Web | `src/AgenticResolution.Web/` | 5000 | App Service (existing) |
-| McpServer | `src/TicketsApi.McpServer/` | 5002 | Container App (Phase 2) |
-
-### Payload: ServiceNow-Style Webhook Snapshot
-Webhook now sends `TicketWebhookSnapshot` (partial):
-- **Included:** Number, ShortDescription, Category, Priority, Urgency, Impact, State, Caller, AssignmentGroup, OpenedAt
-- **Excluded:** Id, Description, UpdatedAt (fetch on-demand via API if needed)
-
-### Test Projects
-- `AgenticResolution.Api.Tests` — targets Api endpoints via `WebApplicationFactory`
-- `AgenticResolution.Web.ComponentTests` — targets Blazor components (unchanged)
-
-### Build Status
-✅ `dotnet build AgenticResolution.sln` → 0 errors, 0 warnings
 
 ---
 
@@ -737,6 +698,75 @@ NOT in-process resolution queue.
 
 ---
 
+## Ticket Loading Configuration Fix
+
+### Ferro: Frontend Configuration for Blazor UI (2026-05-07)
+
+**Date:** 2026-05-07  
+**Author:** Ferro (Frontend Dev)  
+**Status:** ✅ Implemented locally (not deployed)
+
+**Context:** Tickets were not loading when the Blazor UI first rendered.
+
+**Decision:**
+The Blazor frontend must maintain two separate base URLs for the Python Resolution API/SSE pivot:
+- `ApiClient:BaseUrl` / `ApiClient__BaseUrl` → .NET tickets CRUD API (`https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`)
+- `ResolutionApi:BaseUrl` / `ResolutionApi__BaseUrl` → Python Resolution API (`https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`)
+
+The ticket list remains owned by the .NET CRUD API. The Python API only owns `POST /resolve` SSE streaming.
+
+**Why:**
+Production `appsettings.json` had an empty `ApiClient` base URL, causing the UI to render the "API not configured" state and blocking `/tickets` list load.
+
+**Implementation:**
+- `src/dotnet/AgenticResolution.Web/appsettings.json` — now includes deployed ca-api URL
+- `src/dotnet/AgenticResolution.Web/Program.cs` — falls back to `TICKETS_API_URL` env var for `TicketApiClient`
+- `infra/resources.bicep` — now persists both frontend app settings in `rg-agentic-res-src-dev`
+- `Components/Pages/Tickets/Index.razor` — awaits initial load from `OnInitializedAsync` instead of fire-and-forget
+- `TicketApiClient` — returns status/body details for failed REST calls
+
+**Verification:**
+- Live tickets API at `ca-api-tocqjp4pnegfo` returned HTTP 200 with expected paged JSON (items=1, total=98)
+- No Azure deployment performed during fix
+- Local dotnet build blocked: host has .NET 9, project targets .NET 10
+
+---
+
+### Hicks: Backend API Health & Contract (2026-05-07)
+
+**Date:** 2026-05-07  
+**Author:** Hicks (Backend Dev)  
+**Status:** ✅ Verified
+
+**Context:** Diagnosed root cause of ticket loading failure.
+
+**Findings:**
+- Backend route intact: `GET /api/tickets` mapped in `src/dotnet/AgenticResolution.Api/Api/TicketsEndpoints.cs`
+- Deployed API `GET /api/tickets?page=1&pageSize=1` returned HTTP 200 with:
+  - Expected paged contract: `items`, `page`, `pageSize`, `total`
+  - camelCase property names
+  - String enum values for `priority` and `state`
+  - Live DB data: 98 tickets in system
+- CORS not a blocker for Blazor Server (server-side `TicketApiClient` execution)
+- Root cause: Frontend `ApiClient:BaseUrl` configuration was empty/missing
+
+**Decision:**
+Blazor production configuration must point `ApiClient__BaseUrl` at the external .NET CRUD API:
+`https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`
+
+Keep resource group reference as `rg-agentic-res-src-dev`.
+
+**Backend Contract (Unchanged):**
+```
+GET /api/tickets?page={page}&pageSize={pageSize}&assignedTo={assignedTo?}&state={csv?}&category={category?}&priority={csv?}&q={query?}&sort={created|modified}&dir={asc|desc}
+→ { "items": TicketResponse[], "page": number, "pageSize": number, "total": number }
+```
+
+**Verification:**
+- Local dotnet build blocked: host has .NET 9, project targets .NET 10
+
+---
+
 ## Leadership Directives
 
 ### Directive 1: Use Azure AI Foundry, Not Standalone OpenAI
@@ -763,6 +793,18 @@ NOT in-process resolution queue.
 
 ---
 
+### Directive 3: Resource Group Naming
+**Date:** 2026-05-06T21:25:00Z  
+**From:** Jason Farrell (via Copilot)
+
+**What:** The correct resource group for all deployments is `rg-agentic-res-src-dev`. All references to `rg-agentic-res-agentic-resolution-dev` are outdated and should use `rg-agentic-res-src-dev`.
+
+**Why:** User request — standardized naming convention.
+
+**Status:** ✅ Decisions merged and documented (2026-05-07).
+
+---
+
 ## Status Summary
 
 | Component | Owner | Status | Date |
@@ -784,5 +826,5 @@ NOT in-process resolution queue.
 
 ---
 
-**Last consolidated:** 2026-05-06T170700Z  
-**Next review:** Post-deployment validation of Python Resolution API and Blazor UI
+**Last consolidated:** 2026-05-07T012926Z  
+**Next review:** Post-deployment validation of ticket loading fix and .NET version alignment

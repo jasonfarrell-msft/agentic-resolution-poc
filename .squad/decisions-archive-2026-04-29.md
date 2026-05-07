@@ -18,7 +18,7 @@
 
 **By:** Hicks (Backend Dev)
 
-**What:** TicketPriority enum flipped to ServiceNow ordering (Critical=1, High=2, Moderate=3, Low=4); migration added (sentinel-value swap, reversible). Azure provision succeeded: RG `rg-agentic-res-agentic-resolution-dev` (East US 2); resources deployed with Bicep refactor for Entra-only SQL auth (MCAPS policy compliance). App Service uses user-assigned MI for SQL auth; Key Vault provisioned (RBAC). Smoke tests pass: GET /tickets (200), POST /api/tickets (201, INC0010001), round-trip read.
+**What:** TicketPriority enum flipped to ServiceNow ordering (Critical=1, High=2, Moderate=3, Low=4); migration added (sentinel-value swap, reversible). Azure provision succeeded: RG `rg-agentic-res-src-dev` (East US 2); resources deployed with Bicep refactor for Entra-only SQL auth (MCAPS policy compliance). App Service uses user-assigned MI for SQL auth; Key Vault provisioned (RBAC). Smoke tests pass: GET /tickets (200), POST /api/tickets (201, INC0010001), round-trip read.
 
 **Why:** Phase 1 authorization unblocked deployment. Bicep refactor required: SQL now uses Entra-only, App Service tagged for azd deploy. Estimated cost: ~$20–25/mo (B1 App Service, Basic SQL, monitoring). Webhook config deferred (TargetUrl/Secret are empty; no-op dispatch already handled).
 

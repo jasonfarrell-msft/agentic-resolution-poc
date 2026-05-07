@@ -20,6 +20,12 @@
 
 ## Learnings
 
+- **2026-05-07 — Ticket list loading restored.**
+  - Production/default Blazor config now sets `ApiClient:BaseUrl` to `https://ca-api-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`; the previous empty default left `/tickets` in the API-not-configured state after the Python Resolution API/SSE pivot.
+  - `Program.cs` now also accepts `TICKETS_API_URL` as a fallback for `TicketApiClient`, matching the Resolution API environment variable naming used by the Python service.
+  - `Components/Pages/Tickets/Index.razor` awaits `LoadTicketsAsync()` from `OnInitializedAsync` instead of fire-and-forget startup loading, and `TicketApiClient` now returns status/body details for failed REST calls.
+  - Infra App Service settings now persist both `ApiClient__BaseUrl` and `ResolutionApi__BaseUrl` for `rg-agentic-res-src-dev`; no Azure deployment was performed during the fix.
+
 - **2026-07-14 — Circuit timeout + post-resolution nav fixes.**
   - `Program.cs`: Configured `AddServerSideBlazor()` with `ClientTimeoutInterval = 5 min`, `KeepAliveInterval = 15s`, and `DetailedErrors` in dev. Prevents HubConnection drops during long resolution workflows.
   - `App.razor`: Already had `<ReconnectModal />` — no change needed.
@@ -254,3 +260,17 @@ If Hicks creates the `AgenticResolution.Contracts` shared library (per Apone's a
 - Published `src\dotnet\AgenticResolution.Web` in Release and deployed it to Azure App Service `app-agentic-resolution-web` in `rg-agentic-res-src-dev`.
 - Production app setting `ResolutionApi__BaseUrl` is set to `https://ca-resolution-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io`.
 - Verified `https://app-agentic-resolution-web.azurewebsites.net/` returned HTTP 200 after deployment.
+
+### Cross-Agent Update: Backend Verification (2026-05-07)
+
+From Hicks (Backend Dev): Ticket loading issue was verified as frontend-side configuration, not backend failure.
+- Backend API at `ca-api-tocqjp4pnegfo` is healthy and returns expected paged JSON
+- Live DB has 98 tickets available
+- JSON shape matches client expectations (camelCase, string enums)
+- No CRUD endpoint changes needed
+
+**Implication:** Frontend config fix (above) is complete solution. No backend work required for ticket loading.
+
+**Shared blocker:** Local dotnet build requires .NET 10; host has .NET 9 only. Cannot validate fixes via local build.
+
+---
