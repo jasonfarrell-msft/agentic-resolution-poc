@@ -122,6 +122,27 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 - Hicks integrated admin endpoints secured with configuration gates
 - Bob documented the two-step setup (infrastructure + Container Apps)
 
+---
+
+### 2026-05-07 — Deployment Stabilization & Merge Finalization
+
+**Session Outcome:** Final merge of cross-cutting Azure deployment stabilization changes. Commit f514ebc locked all infrastructure and application code for Entra-only SQL authentication.
+
+**Changes Consolidated:**
+1. **Bicep IaC:** `infra/main.bicep`, `infra/resources.bicep`, `infra/modules/sqlserver.bicep` — Entra-only enforcement, dynamic resource group pattern, RBAC scoping refinements
+2. **PowerShell Deployment Scripts:** `scripts/Setup-Solution.ps1`, `scripts/Configure-DatabaseUsers.ps1` — Azure CLI user context capture, environment variable persistence, enhanced error handling
+3. **EF Core Migrations:** `src/dotnet/AgenticResolution.Api/Migrations/20260429171348_Initial.cs` — Database schema locked to support Entra authentication
+4. **Application Configuration:** `src/dotnet/AgenticResolution.Api/Program.cs` — Connection string auth mode set to `Active Directory Default`, managed identity credential chain enabled
+5. **Documentation:** `DEPLOY.md`, `SETUP.md` — User-facing deployment procedures finalized
+
+**Validation:**
+- ✅ `dotnet build` succeeded with existing warnings (NU1603, NU1510 — non-blocking)
+- ✅ `az bicep build --file infra/main.bicep` passed syntax and type checks
+- ✅ Live endpoints (`ca-api-*` in `rg-agentic-res-src-dev`) returned HTTP 200 after redeploy
+- ✅ Git status clean after commit f514ebc
+
+**Next Gate:** Production infrastructure deployment and live system validation
+
 **Key Learning:** Cloud infrastructure templates must be designed for **reproducibility across environments**. Hardcoded resource names break the "single command works anywhere" promise. Dynamic naming patterns (environment-based, location-based) are essential for IaC credibility.
 
 **Future Work:** Phase 2 can expand Bicep to include Container Apps modules (currently using Azure CLI in orchestration script for expediency). Foundry resource model with `kind: 'AIServices'` and projects will need AIServices account + connections per modern (2025+) patterns — avoid legacy `kind: 'AIFoundry'` or `MachineLearningServices` workspace hub patterns.
