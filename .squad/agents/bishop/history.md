@@ -318,6 +318,42 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 - Confirmed `GET /health` → `{"status":"healthy"}`
 - Smoke-tested `POST /resolve` with ticket INC0010102
 - Validated SSE stream emitted progress and terminal resolved event
+
+---
+
+### 2026-05-10: MSI Database User Configuration Script
+
+**Requested by:** Jason Farrell  
+**Scope:** Create reusable script for configuring Azure SQL database users for managed identities, integrate into Setup-Solution.ps1
+
+**Context:** Setup script was using inline SQL with `az sql db query`, which is not available in all Azure CLI versions. Local testing showed the command was not recognized. A reusable, reliable approach was needed.
+
+**Tasks completed:**
+1. ✅ Created `scripts/Configure-DatabaseUsers.ps1` — Standalone script for MSI user configuration
+2. ✅ Integrated into `Setup-Solution.ps1` — Replaced broken inline approach with script call
+3. ✅ Validated against deployed Azure SQL database with both identities
+4. ✅ Confirmed idempotency — Safe to run multiple times
+
+**Implementation details:**
+
+**Authentication approach:** Uses Azure CLI to acquire access token, then .NET SqlClient with `AccessToken` property
+- **Why not sqlcmd -G:** ODBC driver had authentication issues; `-P` parameter has 128-char limit (tokens are ~2000 chars)
+- **Why not az sql db query:** Command not available in all Azure CLI versions
+- **Why .NET SqlClient:** Built into PowerShell, handles long tokens properly, reliable Entra auth
+
+**SQL idempotency:** Script checks role membership before attempting `ALTER ROLE`, avoiding errors when users already exist with correct roles.
+
+**Roles configured:**
+- API identity: `db_owner` (required for EF migrations on startup)
+- Web App identity: `db_datareader`, `db_datawriter`
+
+**Live validation evidence:**
+- Tested against `sql-agent-resolution-test.database.windows.net` / `agenticresolution` database
+- First run created web app user (API user already existed from prior manual config)
+- Second run confirmed idempotency: both users already had correct roles
+- Both runs completed successfully with clear status messages
+
+**Deployment pattern learned:** For Azure SQL Entra auth from PowerShell, `az account get-access-token` + .NET `SqlConnection.AccessToken` is the most reliable approach. Avoids sqlcmd/ODBC driver issues and Azure CLI command availability variations.
 - Verified ticket persisted as Resolved with `agentAction=auto_resolved`
 
 **Result:** Production Resolution API operational, streaming terminal events deterministically, and end-to-end workflow validated.

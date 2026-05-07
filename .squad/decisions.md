@@ -934,3 +934,106 @@ This pattern would require changes to:
 
 **Validation:** Code review complete. Ready for deployment testing.
 
+
+---
+
+# Decision: Azure SQL MSI User Configuration via .NET SqlClient
+
+**Date:** 2026-05-10  
+**Status:** ✅ Shipped  
+**Owner:** Bishop  
+**Context:** Setup script database user configuration
+
+## Problem
+
+The Setup-Solution.ps1 script was attempting to configure Azure SQL database users for managed identities using z sql db query, which:
+1. Is not available in all Azure CLI versions (reported as "misspelled or not recognized")
+2. Creates maintenance risk if Azure CLI command surface changes
+3. Had no fallback mechanism
+
+This blocked automated setup for users with certain Azure CLI versions.
+
+## Decision
+
+Created a dedicated, reusable scripts/Configure-DatabaseUsers.ps1 script that:
+- Acquires Azure access token via z account get-access-token
+- Uses .NET System.Data.SqlClient with SqlConnection.AccessToken property for authentication
+- Implements idempotent SQL (checks role membership before ALTER ROLE)
+- Provides clear error messages and troubleshooting guidance
+
+Integrated into Setup-Solution.ps1 by calling the script instead of inline SQL execution.
+
+## Alternatives Considered
+
+### Option 1: sqlcmd with -G flag (Entra auth)
+**Rejected:** ODBC driver authentication failures observed; -P parameter for access token limited to 128 characters (tokens are ~2000 chars).
+
+### Option 2: az sql db query with --auth-mode
+**Rejected:** Command not available in all Azure CLI versions; unpredictable availability.
+
+### Option 3: Invoke-Sqlcmd PowerShell module
+**Rejected:** Requires separate module install; adds dependency not guaranteed in all environments.
+
+### Option 4: .NET SqlClient with access token ✅ CHOSEN
+**Rationale:**
+- Built into PowerShell (no external dependencies)
+- Handles long access tokens properly
+- Reliable Entra authentication via access token
+- Works across all Azure CLI versions (only needs z account get-access-token)
+
+## Implementation
+
+**New script:** scripts/Configure-DatabaseUsers.ps1
+
+**Parameters:**
+- ServerFqdn — SQL Server FQDN
+- DatabaseName — Database name
+- ApiIdentityName — API managed identity (gets db_owner)
+- WebAppIdentityName — Web App managed identity (gets db_datareader + db_datawriter)
+
+**SQL idempotency pattern:**
+`sql
+IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'identity-name')
+BEGIN
+    CREATE USER [identity-name] FROM EXTERNAL PROVIDER;
+    ALTER ROLE db_owner ADD MEMBER [identity-name];
+END
+ELSE
+BEGIN
+    -- Check if role membership exists before attempting ALTER ROLE
+    IF NOT EXISTS (SELECT 1 FROM sys.database_role_members ...)
+    BEGIN
+        ALTER ROLE db_owner ADD MEMBER [identity-name];
+    END
+END
+`
+
+**Integration in Setup-Solution.ps1:**
+`powershell
+& $PSScriptRoot\Configure-DatabaseUsers.ps1 
+    -ServerFqdn $sqlServerFqdn 
+    -DatabaseName $sqlDbName 
+    -ApiIdentityName $apiIdentityName 
+    -WebAppIdentityName $webAppName
+`
+
+## Validation
+
+✅ **Syntax:** PowerShell parser validated both scripts  
+✅ **Connectivity:** Successfully connected to sql-agent-resolution-test.database.windows.net  
+✅ **First run:** Created web app user with correct roles  
+✅ **Idempotency:** Second run confirmed both users already had correct roles  
+✅ **Error handling:** Clear messages for auth failures, firewall blocks, missing identities
+
+## Impact
+
+- **Setup reliability:** Works across all Azure CLI versions
+- **Reusability:** Script can be called from other automation (not just Setup-Solution.ps1)
+- **Maintainability:** Single script to update if SQL logic changes
+- **Troubleshooting:** Clear error messages with actionable steps
+
+## References
+
+- scripts/Configure-DatabaseUsers.ps1
+- scripts/Setup-Solution.ps1 (lines 580-603, after integration)
+- .squad/agents/bishop/history.md (2026-05-10 session)
