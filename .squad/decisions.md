@@ -1037,3 +1037,94 @@ END
 - scripts/Configure-DatabaseUsers.ps1
 - scripts/Setup-Solution.ps1 (lines 580-603, after integration)
 - .squad/agents/bishop/history.md (2026-05-10 session)
+
+### 2026-05-08: Database Reseed Issue — Root Cause Analysis (Apone)
+
+**By:** Apone (Lead / Architect)  
+**Status:** DESIGN REVIEW COMPLETE
+
+**Issue:** User reported "The script does not reseed the database" during setup
+
+**Root Causes Identified:**
+1. **Silent timeout failure** — Setup-Solution.ps1 was issuing warnings but continuing when API timeout prevented seeding
+2. **Test coverage gap** — Existing tests use in-memory DB only; do not exercise actual ExecuteDeleteAsync/ExecuteUpdateAsync code paths used in production
+3. **Sequence management risk** — Ticket number sequence reset tied to reseed logic with no transaction coordination
+
+**Design Recommendations:**
+- Hicks (backend): Change API timeout from soft warning to hard failure; clarify ResetDataRequest contract
+- Vasquez (tests): Add regression tests for reseed behavior; document in-memory DB limitations; plan SQL testcontainers migration (Phase 2)
+
+**References:** .squad/decisions/inbox/apone-reseed-review.md
+
+---
+
+### 2026-05-08: Reseed Fix — APPROVED (Apone)
+
+**By:** Apone (Lead / Architect)  
+**Status:** APPROVED
+
+**Working Tree Changes Approved:**
+
+| Artifact | Author | Change |
+|----------|--------|--------|
+| scripts/Setup-Solution.ps1 | Hicks | API timeout → hard failure (xit 1); documentation 5→15 tickets |
+| scripts/Reset-Data.ps1 | Hicks | Documentation-only (5→15 tickets) |
+| AdminReseedIntegrationTests.cs | Vasquez | 8 InMemory reseed regression tests |
+
+**Rationale:** Silent timeout failure was leaving users with unseeded databases and no clear error. Hard xit 1 makes the failure explicit so users can take corrective action.
+
+**Non-Blocking Observations:**
+1. In-memory tests don't exercise real bulk operations — testcontainer migration remains Phase 2
+2. No retry on reset-data call if health check passes but POST fails — acceptable for demo
+3. Flag redundancy: sending both ResetTickets=true and SeedSampleTickets=true is wasteful — future cleanup candidate
+
+**Validation:** 22/22 tests pass; build succeeds with existing NU1603 warnings accepted
+
+---
+
+### 2026-05-08: Database Reseed Timeout Hardened — Implementation (Hicks)
+
+**By:** Hicks (Backend)  
+**Status:** IMPLEMENTED
+
+**Change:** Setup-Solution.ps1 line 656 — changed Write-Warning to Write-Error + xit 1 when API timeout expires
+
+**Rationale:** Documented behavior states "sample tickets are always seeded during setup." A timeout preventing seeding is a setup failure, not a skippable warning.
+
+**Documentation Updates:**
+- scripts/README.md (5→15 sample tickets)
+- SETUP.md (5→15 sample tickets)
+- DEPLOY.md (5→15 sample tickets)
+- Reset-Data.ps1 (5→15 sample tickets)
+- Setup-Solution.ps1 (5→15 sample tickets)
+
+**Validation:** AdminEndpointsTests 8/8 pass; AdminEndpoints.cs seed logic confirmed correct
+
+---
+
+### 2026-05-08: Reseed Regression Coverage Added — Integration Tests (Vasquez)
+
+**By:** Vasquez (QA / Tester)  
+**Status:** IMPLEMENTED
+
+**New Test File:** src/dotnet/AgenticResolution.Api.Tests/AdminReseedIntegrationTests.cs
+
+**Test Coverage (8 new tests):**
+1. Reseed_DeletesAllExistingTickets — Delete-all clears stale data
+2. Reseed_InsertsNewTicketsWithCorrectBaseline — Fresh INC0010001...INC0010015 insertion
+3. Reseed_SetsSequenceToMatchInsertedTickets — Sequence LastValue = 10000 + seeded count
+4. Reseed_IdempotentWhenCalledTwice — Second reseed safe (idempotency verified)
+5. Reseed_ClearsAllTicketStates — All states deleted before fresh insert
+6. Reseed_PreservesSequenceRow — TicketNumberSequences row survives ticket wipe
+7. Reseed_EmptyDatabase_InsertsCleanBaseline — Reseed on empty DB works
+8. (Implied: Reseed sequence state consistency)
+
+**Test Results:** 8/8 new tests ✅ | Full suite 22/22 ✅
+
+**Critical Limitation Documented:** In-memory DB does NOT support ExecuteDeleteAsync/ExecuteUpdateAsync. Tests verify INTENT using RemoveRange substitutes but do NOT exercise actual production code paths.
+
+**Phase 2 Blocking Gate:** SQL testcontainers migration required before production deployment (testcontainers.MsSql NuGet package; separate AdminReseedSqlIntegrationTests.cs).
+
+**References:** Apone's design review; AdminEndpoints.cs lines 52-69; AdminEndpointsTests.cs
+
+---

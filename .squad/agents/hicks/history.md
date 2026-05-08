@@ -449,3 +449,5 @@ Added diagnostic logging for operational visibility. No functional behavior chan
 
 **Team note:** This is an example of infrastructure-driven security where the platform (Azure SQL + SqlClient provider + Azure.Identity) handles auth entirely through configuration. No application code changes needed beyond connection string format.
 
+
+- **Database reseed script fix (2026-05-08):** Setup-Solution.ps1 was silently skipping sample ticket seeding when the API didn't become ready within 120 seconds. Changed line 656 from a soft warning to a hard error (`exit 1`) so users know setup is incomplete. Updated all documentation (scripts/README.md, SETUP.md, DEPLOY.md, Reset-Data.ps1, Setup-Solution.ps1) to reflect that seeding now creates 15 sample tickets (not 5 as previously documented). AdminEndpoints.cs seed logic was correct (`ExecuteDeleteAsync` then `AddRange`); issue was timeout handling in the setup script. Validation: `dotnet test` on AdminEndpointsTests passes (8/8 tests, 0 failures).

@@ -1,9 +1,9 @@
 ---
-updated_at: 2026-04-29T18:28:07Z
-focus_area: Phase 2: AI Search + Foundry Agents
+updated_at: 2026-05-08T12:49:07Z
+focus_area: Database reseed script bug
 active_issues: []
 ---
 
 # What We're Focused On
 
-Phase 2 kickoff: delivering Azure AI Search index + Foundry agents for automated ticket resolution. Parallel tracks: Hicks (infrastructure gates), Vasquez (test infrastructure), Bishop (standby on agent code), Ferro (UI updates). Decisions locked; 9 gate criteria sequence work. No blockers.
+Investigating and fixing the database reseed script path so local data reset/seed behavior works reliably. Hicks owns backend/database changes; Vasquez owns regression coverage.

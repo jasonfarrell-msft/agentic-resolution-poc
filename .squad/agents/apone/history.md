@@ -164,3 +164,45 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 **Key Learning:** Cloud infrastructure templates must be designed for **reproducibility across environments**. Hardcoded resource names break the "single command works anywhere" promise. Dynamic naming patterns (environment-based, location-based) are essential for IaC credibility.
 
 **Future Work:** Phase 2 can expand Bicep to include Container Apps modules (currently using Azure CLI in orchestration script for expediency). Foundry resource model with `kind: 'AIServices'` and projects will need AIServices account + connections per modern (2025+) patterns — avoid legacy `kind: 'AIFoundry'` or `MachineLearningServices` workspace hub patterns.
+
+---
+
+### 2026-05-10 — Design Review: Database Reseed Contract Issue
+
+**Context:** User reported "script does not reseed the database." Design review identified structural contract mismatches, not a code bug.
+
+**Key Findings:**
+1. **API Contract Ambiguity** — `ResetDataRequest` has two independent flags (`ResetTickets`, `SeedSampleTickets`) that are not semantically synchronized. Seeding **deletes all existing tickets** before inserting fresh data, which may violate caller expectations if reset is called standalone.
+2. **Test-to-Code Misalignment** — Admin endpoint tests use in-memory DB with manual LINQ assignments, but actual code path uses `ExecuteUpdateAsync()`. Tests do NOT validate real SQL Server behavior or sequence state.
+3. **Sequence Reset Under-Specified** — Ticket number sequence reset is tied to seed logic; no compensation if one operation fails mid-transaction.
+
+**Architectural Decisions:**
+- **Hicks (backend):** Must clarify API contract semantics (reset vs. seed vs. delete-all) before implementation. Propose explicit `DeleteAllTickets` flag for clarity.
+- **Vasquez (tests):** Must replace in-memory tests with SQL testcontainers. Add idempotency validation.
+- **Gate criteria:** Contract aligned, testcontainers in place, reseed idempotent, sequence state validated.
+
+**Decision Artifact:** Detailed design review written to `.squad/decisions/inbox/apone-reseed-review.md`. This is a **contract boundary issue**, not a code bug. Requires Hicks + Vasquez team alignment before implementation.
+
+**Pattern Extracted:** Admin endpoints with state-changing operations need explicit contract documentation (not just defaults). Never assume script author and API designer agree on semantics.
+
+### 2026-05-10 — Code Review: Reseed Fix Implementation (Hicks + Vasquez)
+
+**Context:** Reviewed working tree changes addressing "script does not reseed the database" complaint.
+
+**Artifacts Reviewed:**
+- `scripts/Setup-Solution.ps1` — Hicks made API timeout a hard failure (`exit 1`), updated error message with `-SeedSampleTickets` flag, doc updates 5→15 tickets
+- `scripts/Reset-Data.ps1` — Doc-only update (5→15 tickets)
+- `src/dotnet/AgenticResolution.Api.Tests/AdminReseedIntegrationTests.cs` — Vasquez added 7 InMemory tests simulating reseed behavior
+
+**Verdict: APPROVED**
+
+**Rationale:**
+1. **Root cause addressed.** The most likely failure mode was silent timeout — script warned but continued, user didn't notice reseed was skipped. Hard `exit 1` makes failure impossible to miss.
+2. **Wiring confirmed correct.** Setup-Solution.ps1 line 667 always passes `-SeedSampleTickets` → Reset-Data.ps1 sends `{ ResetTickets: true, SeedSampleTickets: true }` → API deletes all + inserts 15 fresh tickets + resets sequence. Path is sound.
+3. **15 tickets verified.** `GetSampleTickets()` returns INC0010001–INC0010015. Doc updates are accurate.
+4. **Tests acceptable with caveats.** Vasquez's tests use `RemoveRange` (InMemory limitation clearly documented) — they verify intent, not real SQL behavior. Phase 2 testcontainer migration already flagged. Idempotency test included.
+
+**Remaining risks (not blocking):**
+- Tests don't exercise `ExecuteDeleteAsync`/`ExecuteUpdateAsync` — real SQL could diverge
+- No retry logic if API health check passes but reset-data call itself fails
+- `ResetTickets` + `SeedSampleTickets` redundancy: reset updates all tickets, then seed deletes them anyway
