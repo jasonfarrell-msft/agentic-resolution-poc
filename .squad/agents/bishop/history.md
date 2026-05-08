@@ -145,6 +145,24 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 ## Learnings
 
+### 2026-05-08: test2 Resolution API Azure OpenAI RBAC repair
+
+**Issue diagnosed:** `ca-res-agent-resolution-test2` used user-assigned identity `id-resolution-agent-resolution-test2` (principal `c6b82506-1e92-49b1-8e4b-962defc93a9f`) and failed at classifier startup because the identity lacked the Azure OpenAI data-plane action `Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action`.
+
+**Root cause:** The `test2` resource group had no Cognitive Services/Azure OpenAI account. The Resolution API container only had `AZURE_CLIENT_ID` configured, so `shared/client.py` fell back to `https://oai-agentic-res-src-dev.cognitiveservices.azure.com/` and `gpt-5.1-deployment`. That target account requires data-plane RBAC for each managed identity that calls chat completions.
+
+**Least-privilege role:** `Cognitive Services OpenAI User` at the Azure OpenAI/AI Services account scope. This role includes the required chat completions data action without granting contributor-level management permissions.
+
+**Action taken:** Confirmed no existing effective assignment on first inspection, then verified/created the role assignment for the Resolution API principal at `/subscriptions/bb4b2781-6739-4fa1-994e-4ad6ce55c59c/resourceGroups/rg-agentic-res-src-dev/providers/Microsoft.CognitiveServices/accounts/oai-agentic-res-src-dev`.
+
+**Validation:** Initial retry showed the known Agent Framework singleton busy state, so the active `ca-res-agent-resolution-test2` revision was restarted. A retry immediately after assignment still returned PermissionDenied, consistent with Azure RBAC data-plane propagation delay. After a propagation wait and another revision restart, `POST /resolve` for `INC0010102` reached terminal `resolved`; the RBAC error was cleared.
+
+**Operational note:** After assigning Azure OpenAI data-plane RBAC, allow several minutes for propagation and restart the Resolution API revision if it had already acquired a denied token or is stuck in singleton busy state.
+
+**Decision documented:** `.squad/decisions/decisions.md` section "Azure OpenAI Data-Plane RBAC for Resolution API" consolidates findings and operating guidance. Hicks automated role assignment in `scripts\Setup-Solution.ps1` for future deployments.
+
+---
+
 ### 2026-05-07: Final resolver status contract verified
 
 **Verification target:** live `ca-resolution-tocqjp4pnegfo` and `ca-api-tocqjp4pnegfo` in `rg-agentic-res-src-dev`.

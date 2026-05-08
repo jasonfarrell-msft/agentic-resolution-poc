@@ -19,6 +19,7 @@
 11. [Directives from Leadership](#leadership-directives)
 12. [Azure SQL Entra-Only Authentication (MCAPS Compliance)](#sql-entra-auth)
 13. [Entra Auth Verification - No Code Changes Needed](#entra-auth-verification)
+14. [Azure OpenAI Data-Plane RBAC for Resolution API](#azure-openai-rbac)
 
 ---
 
@@ -961,6 +962,73 @@ Jason requested verification that the .NET API works with Azure SQL Entra-only a
 
 ---
 
+## Azure OpenAI Data-Plane RBAC for Resolution API
+
+**Date:** 2026-05-08  
+**Authors:** Hicks (Backend Dev), Bishop (AI/Agents Specialist)  
+**Requested by:** Jason Farrell  
+**Status:** ✅ Applied to test2; Automated in Setup-Solution.ps1
+
+### Problem
+
+test2 Resolution API failed with `401 PermissionDenied` when calling Azure OpenAI chat completions:
+```
+Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action
+```
+
+The managed identity `id-resolution-agent-resolution-test2` (principal `c6b82506-1e92-49b1-8e4b-962defc93a9f`) lacked data-plane RBAC.
+
+### Root Cause Analysis
+
+- Azure OpenAI **chat completions are data-plane operations**, not control-plane
+- Control-plane roles (e.g., Contributor) do NOT grant data-plane `chat/completions/action`
+- Resolution API uses `DefaultAzureCredential` → requires explicit RBAC assignment
+
+### Decision
+
+**Every managed identity used by the Python Resolution API must receive the built-in `Cognitive Services OpenAI User` role at the Azure OpenAI / Azure AI Services account scope it calls.**
+
+**Least-privilege role:** `Cognitive Services OpenAI User` (includes `Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action`)
+
+### Implementation
+
+**test2 Application:**
+- Managed identity: `id-resolution-agent-resolution-test2`
+- Principal: `c6b82506-1e92-49b1-8e4b-962defc93a9f`
+- Azure OpenAI account: `oai-agentic-res-src-dev`
+- Deployment: `gpt-5.1-deployment` (fallback when `AZURE_OPENAI_ENDPOINT` not set)
+
+**Action taken:**
+1. Granted `Cognitive Services OpenAI User` on `oai-agentic-res-src-dev` scope
+2. Allowed 2-5 minutes for Azure RBAC propagation
+3. Restarted Resolution API revision to clear cached PermissionDenied
+4. Validated `POST /resolve` reached terminal `resolved` state
+
+**Automated for future deployments:**
+- Updated `scripts\Setup-Solution.ps1` to assign role to Resolution API identity after ACR pull access
+- Role assigned before Container App creation/update
+
+### Operating Guidance
+
+1. **Grant RBAC before starting Resolution API revision** — PermissionDenied error caches in Agent Framework singleton workflow state
+2. **Allow 2-5 minutes for propagation** — Azure RBAC delays 1-3 minutes typical
+3. **Restart revision if stuck** — If app already failed or Agent Framework workflow is busy, restart container
+4. **Future endpoints** — If Resolution API targets different Azure OpenAI account, set `AZURE_OPENAI_ENDPOINT` env var and grant role at that account scope
+
+### Rationale
+
+- **Data-plane operations require data-plane RBAC** — control-plane Contributor role insufficient
+- **Least privilege** — `Cognitive Services OpenAI User` grants only inference, not management/deletion
+- **Idempotent assignment** — Role assignment is side-effect idempotent (can re-apply safely)
+
+### Verification
+
+- test2 `POST /resolve` **✅ Terminal resolved state achieved**
+- Setup scripts **✅ Updated for future deployments**
+- No code changes needed in Resolution API (Azure.Identity already handles Entra auth)
+
+---
+
 ## Status Summary
 
 | Component | Owner | Status | Date |
@@ -979,8 +1047,10 @@ Jason requested verification that the .NET API works with Azure SQL Entra-only a
 | API Contract Extensions (Phase 2.5) | Hicks | ✅ Implemented | 2026-05-06 |
 | Azure SQL Entra-Only Authentication | Bishop | ✅ Implemented | 2026-05-07 |
 | Entra Auth Verification (.NET API) | Hicks | ✅ No changes needed | 2026-05-07 |
+| Azure OpenAI Data-Plane RBAC | Hicks/Bishop | ✅ Applied to test2 + Automated | 2026-05-08 |
 
 ---
 
-**Last consolidated:** 2026-05-07T20:32:27Z  
-**Next review:** Post-deployment validation of SQL Entra authentication in production
+**Last Updated:** 2026-05-08  
+**Last consolidated:** 2026-05-08T20:34:35Z  
+**Next review:** Verify test2 Resolution API health in production
