@@ -842,6 +842,93 @@ Container/service compatibility: `TICKETS_API_URL` is also accepted.
 
 ---
 
+### 2026-05-08: Hicks — agent-resolution-test2 Deployment Outcome
+
+**By:** Hicks (Backend Developer)  
+**Date:** 2026-05-08  
+**Environment:** agent-resolution-test2  
+**Location:** eastus2
+
+## Decision Context
+
+Deployed a fresh test environment using the suffix `agent-resolution-test2` in `eastus2` to avoid soft-deleted resource conflicts from the previous `agent-resolution-test` environment.
+
+## Deployment Method
+
+Executed `.\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test2" -Location "eastus2" -SeedSampleTickets` from the team root.
+
+## Outcome
+
+### Infrastructure Successfully Provisioned
+- **Resource Group:** rg-agent-resolution-test2
+- **Azure SQL Database:** sql-agent-resolution-test2.database.windows.net with Entra-only authentication
+- **Key Vault:** kv-agentresolutiontest2
+- **Container Registry:** cragentresolutiontest2.azurecr.io
+- **Container Apps Environment:** cae-agent-resolution-test2 (delightfulbay-f32d8642.eastus2.azurecontainerapps.io)
+- **Web App:** app-agent-resolution-test2-web.azurewebsites.net (Running)
+- **Tickets API (Container App):** ca-api-agent-resolution-test2.delightfulbay-f32d8642.eastus2.azurecontainerapps.io (Running, 15 tickets seeded)
+- **Resolution API (Container App):** ca-res-agent-resolution-test2.delightfulbay-f32d8642.eastus2.azurecontainerapps.io (Running)
+
+### Issues Encountered and Resolved
+
+1. **Setup script hung during ACR build step**
+   - The `Setup-Solution.ps1` script successfully provisioned all infrastructure but hung during the `az acr build` phase (likely a timeout or progress display issue)
+   - All resources were created despite the hang; script termination was necessary
+   - **Resolution:** Stopped the script; validated resources were deployed; completed remaining steps manually
+
+2. **Database users not configured**
+   - Managed identity database users were not created because the setup script didn't complete
+   - **Resolution:** Ran `Configure-DatabaseUsers.ps1` with correct identity names:
+     - API identity: `id-api-agent-resolution-test2` (not `ca-api-agent-resolution-test2`)
+     - Web App identity: `app-agent-resolution-test2-web`
+
+3. **Admin API key not configured**
+   - Container App was deployed without admin API key secret or environment variable
+   - **Resolution:** 
+     - Created admin API key secret in Container App: `admin-api-key`
+     - Set environment variable: `AdminEndpoints__ApiKey=secretref:admin-api-key` (NOT `AdminApiSettings__AdminApiKey`)
+     - Restarted Container App revision to apply changes
+
+4. **Data seeding required manual execution**
+   - Initial data seeding failed due to missing admin API key configuration
+   - **Resolution:** Called `/api/admin/reset-data` endpoint directly after admin key was configured
+   - Verified 15 tickets seeded successfully
+
+## Validated Endpoints
+
+- **Web App:** https://app-agent-resolution-test2-web.azurewebsites.net ✓ Healthy
+- **Tickets API:** https://ca-api-agent-resolution-test2.delightfulbay-f32d8642.eastus2.azurecontainerapps.io ✓ Healthy
+  - `/api/tickets` returns paginated response with 15 total tickets
+  - Sample ticket: INC0010015 - "Forgot password and need immediate reset"
+- **Resolution API:** https://ca-res-agent-resolution-test2.delightfulbay-f32d8642.eastus2.azurecontainerapps.io ✓ Healthy
+
+## Recommendations
+
+1. **Fix Setup-Solution.ps1 hang issue**
+   - Investigate the `az acr build` timeout/hang during long builds
+   - Consider adding `--no-logs` already present but may need timeout handling
+   - Add resilience/retry logic or progress indicators
+
+2. **Integrate post-deployment steps into setup script**
+   - Add completion verification checks after ACR build
+   - Ensure database user configuration completes even if earlier steps had delays
+   - Validate admin API key is set before attempting data seeding
+
+3. **Document environment variable naming conventions**
+   - AdminEndpoints configuration uses double-underscore format: `AdminEndpoints__ApiKey`
+   - Add validation in setup script to catch misnamed environment variables
+
+4. **Improve setup script completion feedback**
+   - Add final validation step that tests all endpoints
+   - Report ticket count and sample tickets at completion
+   - Provide clear success/failure summary
+
+## Decision
+
+The test2 environment is fully operational and meets all requirements. The deployment succeeded despite the script hang issue. Future deployments should incorporate the manual post-deployment steps into an automated completion/verification phase.
+
+---
+
 **Earlier decisions archived to `decisions-archive-2026-04-29.md`** (Phase 1 scope, resources, test infrastructure, etc.)
 
 ---

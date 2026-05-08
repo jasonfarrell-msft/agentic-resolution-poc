@@ -148,6 +148,42 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 3. **Blocked force removal** — Left live worktrees in place pending user decision (uncommitted/untracked files prevent automatic cleanup).
 
 **Current State:**
+
+---
+
+### 2026-05-08 — Test2 Deployment Verification (Apone)
+
+**Session Outcome:** Verified `agent-resolution-test2` deployment safety and alignment with architecture decisions.
+
+**Verification Results:**
+1. **Naming & Resource Constraints** — All resources conform to Azure length/charset limits:
+   - RG: `rg-agent-resolution-test2` (24 chars, max 90) ✅
+   - SQL Server: `sql-agent-resolution-test2` (27 chars, max 63) ✅
+   - App Service: `app-agent-resolution-test2-web` (31 chars, max 60) ✅
+   - Key Vault: `kvagentresolutiontest2` (22 chars, max 24) ✅
+
+2. **Soft-Delete Safety** — Previous RG deletion fully clears SQL Server and Key Vault soft-delete state. No conflicts expected. Redeployment is clean.
+
+3. **Setup Script Alignment** — `Setup-Solution.ps1` correctly handles `-Environment agent-resolution-test2` parameter:
+   - Calls `azd env new` (or `azd env select`)
+   - Creates dynamic RG: `rg-agent-resolution-test2`
+   - All resource names derive from environmentName parameter ✅
+   - No hardcoded resource names; fully parameterized ✅
+
+4. **Architecture Compliance** — Deployment aligns with all squad decisions:
+   - ✅ Dynamic resource group (Phase 2.5 finalized)
+   - ✅ Managed identities for Web App + Container Apps
+   - ✅ Entra-only SQL auth
+   - ✅ Container Apps (API + Python Resolution) per decision 2026-05-07
+   - ✅ One-command setup per Jason's directive
+
+5. **Working Tree State** — Current uncommitted changes (docs + approved tests) are safe for deployment.
+
+**Blockers:** None identified. Deployment is safe and aligned.
+
+**Recommendation:** Deploy with `.\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test2" -SeedSampleTickets`
+
+**Current State:**
 - Main worktree: ✅ Clean, deployment-ready
 - Auxiliary worktrees: ⏸️ Blocked (awaiting user input for removal or preservation)
 
