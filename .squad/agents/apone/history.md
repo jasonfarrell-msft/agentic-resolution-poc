@@ -6,6 +6,31 @@
 - **Phase 1 scope:** basic Azure resources + Blazor frontend hosted on App Service. **Do NOT deploy to Azure** during Phase 1 — local/scaffold work only.
 - **Created:** 2026-04-29
 
+## Core Context
+
+**Phase 1 (Completed 2026-04-29):**
+- Single Blazor Server project with minimal API endpoints
+- Three-project Phase 2 decomposition: `AgenticResolution.Api` (EF Core, CRUD), `AgenticResolution.Web` (Blazor UI), `AgenticResolution.McpServer` (stdio MCP adapter)
+- SQL Server with Entra-only authentication (MCAPS policy compliant, no SQL passwords)
+- Managed identity for app-to-SQL authentication; Web App: db_datareader + db_datawriter; API: db_owner (migrations)
+- One-command setup via `Setup-Solution.ps1` with dynamic resource group naming (g-{environmentName})
+- Admin endpoints secured: Disabled by default, ephemeral API key per session, protected by AdminAuthMiddleware
+
+**Phase 2 (Active):**
+- Architecture finalized: 5 subsystems (Function webhook, AI Search index, Foundry agents triage+summarizer, PUT /api/tickets/{id}, Bicep IaC)
+- Nine gate criteria (G1–G9): Infrastructure gates (Hicks), application gates (Hicks), test gates (Vasquez)
+- Cost estimate: ~$78–81/mo incremental (AI Search $75, OpenAI $2–5.50, Function/Storage ~$0.50); combined Phase 1+2: ~$103–106/mo
+- Deployment validated (2026-05-08): test environment `agent-resolution-test` with 15 seeded tickets, all endpoints healthy
+- Known issue: SQL Server public access enabled (temporary); production requires VNet + private endpoint
+
+**Key Locked Decisions:**
+- Webhook payload: 10 ServiceNow fields (number, short_description, category, priority, urgency, impact, state, caller, assignment_group, opened_at)
+- MCP server: HTTP-over-Api, not shared DbContext
+- Deployment: One-command azd up; MCAPS compliant; managed identities throughout
+- Test infrastructure: Phase 2 requires SQL testcontainers migration (InMemory insufficient for constraints/concurrency)
+
+---
+
 ## Learnings
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
