@@ -110,6 +110,24 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 **Infrastructure Decisions Finalized:**
 1. **Dynamic Resource Group** — Changed from hardcoded `rg-agentic-res-src-dev` to dynamic creation (`rg-{environmentName}`). Enables `azd up` to work in any subscription/environment. Pattern: `main.bicep` creates RG; `resources.bicep` provisions resources in it.
 
+### 2026-05-08 — Worktree Cleanup & Repo Hygiene
+
+**Session Outcome:** Post-deployment worktree management after main branch stabilization at HEAD 38ab151.
+
+**Actions Taken:**
+1. **Pruned 3 stale worktree entries** — Removed dead worktrees that had been abandoned.
+2. **Identified 3 live auxiliary worktrees with uncommitted changes:**
+   - `agents-fix-ai-resolve-button-functionality`
+   - `agents-frontend-500-error-troubleshooting`
+   - `agents-frontend-network-issue-debugging`
+3. **Blocked force removal** — Left live worktrees in place pending user decision (uncommitted/untracked files prevent automatic cleanup).
+
+**Current State:**
+- Main worktree: ✅ Clean, deployment-ready
+- Auxiliary worktrees: ⏸️ Blocked (awaiting user input for removal or preservation)
+
+**Next Decision Gate:** User to authorize force removal or preserve branches for continued development.
+
 2. **Key Vault RBAC Scope** — Fixed role assignment scope from resource group to Key Vault resource (principle of least privilege). GUID generation now uses Key Vault ID (available at compile time). Bicep `parent:` property syntax cleaner than string concatenation.
 
 3. **PrincipalType Flexibility** — Added `@allowed(['User', 'ServicePrincipal'])` parameter to `keyvault.bicep` module. Supports both user deployments (`azd up` from workstation) and CI/CD service principal scenarios without module modification.
