@@ -451,3 +451,47 @@ Added diagnostic logging for operational visibility. No functional behavior chan
 
 
 - **Database reseed script fix (2026-05-08):** Setup-Solution.ps1 was silently skipping sample ticket seeding when the API didn't become ready within 120 seconds. Changed line 656 from a soft warning to a hard error (`exit 1`) so users know setup is incomplete. Updated all documentation (scripts/README.md, SETUP.md, DEPLOY.md, Reset-Data.ps1, Setup-Solution.ps1) to reflect that seeding now creates 15 sample tickets (not 5 as previously documented). AdminEndpoints.cs seed logic was correct (`ExecuteDeleteAsync` then `AddRange`); issue was timeout handling in the setup script. Validation: `dotnet test` on AdminEndpointsTests passes (8/8 tests, 0 failures).
+
+- **Test deployment validation (2026-05-08):** Successfully deployed test environment to Azure. Web App: https://app-agent-resolution-test-web.azurewebsites.net/; API: https://ca-api-agent-resolution-test.ashybay-4e6168e1.eastus2.azurecontainerapps.io. Seeded 15 sample tickets (INC0010001-INC0010015) covering Email, Hardware, Network, Account Management, Software, Security, and Cloud Storage categories, all in New status. Key fixes: SQL Server public network access must be enabled for Container App connectivity (error: Deny Public Network Access prevented connections); Admin endpoints require AdminEndpoints__Enabled=true and AdminEndpoints__ApiKey (double underscore for nested config) set as environment variables. Admin endpoint path is /api/admin/reset-data not /api/admin/reseed. Validated API returns paginated response with 15 tickets. Files: scripts\Setup-Solution.ps1, scripts\Reset-Data.ps1, src\dotnet\AgenticResolution.Api\Middleware\AdminAuthMiddleware.cs, src\dotnet\AgenticResolution.Api\Api\AdminEndpoints.cs.
+
+---
+
+### 2026-05-08 — Test Deployment Successful with Seeded Data
+
+**Task:** Execute setup/deploy path for test environment with 15 seeded sample tickets.
+
+**Environment:** `agent-resolution-test` in `eastus2` | Resource group: `rg-agent-resolution-test`
+
+**Status:** ✅ **COMPLETED**
+
+**Deployment Outcome:**
+
+| Component | Endpoint | Status |
+|-----------|----------|--------|
+| Web App | https://app-agent-resolution-test-web.azurewebsites.net | ✅ HTTP 200 |
+| Tickets API | https://ca-api-agent-resolution-test.ashybay-4e6168e1.eastus2.azurecontainerapps.io | ✅ Healthy |
+| Resolution API | https://ca-res-agent-resolution-test.ashybay-4e6168e1.eastus2.azurecontainerapps.io | ✅ Healthy |
+| Database | SQL Server `sql-agent-resolution-test` | ✅ Connected |
+| Sample Data | 15 tickets (INC0010001–INC0010015) | ✅ Seeded, all New state |
+
+**Infrastructure Notes:**
+- All resources created successfully in `rg-agent-resolution-test`
+- Managed identities configured with Entra authentication
+- SQL Server public access enabled (temporary; private endpoints pending)
+- All migrations applied automatically on API startup
+
+**Data Validation:**
+- GET /api/tickets returned 15 tickets
+- All tickets in New state
+- Categories: Email, Hardware, Network, Account Management, Software, Security, Cloud Storage
+- Admin endpoint `/api/admin/reset-data` operational
+
+**Known Temporary Workaround:**
+- SQL Server public network access must remain enabled until private endpoints are configured
+- Production consideration: VNet + private endpoint to eliminate public exposure
+
+**Signed-off by:** Coordinator validation complete
+
+**References:**
+- `.squad/orchestration-log/2026-05-08T13-59-14Z-hicks.md`
+- `.squad/decisions.md` — "SQL Server Public Access Required for Container Apps" (2026-05-08)

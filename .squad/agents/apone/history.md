@@ -206,3 +206,70 @@ Hicks added standard .NET .gitignore at repo root (commits 9c98efa, 7e121fd). `.
 - Tests don't exercise `ExecuteDeleteAsync`/`ExecuteUpdateAsync` — real SQL could diverge
 - No retry logic if API health check passes but reset-data call itself fails
 - `ResetTickets` + `SeedSampleTickets` redundancy: reset updates all tickets, then seed deletes them anyway
+
+### 2026-05-10 — Deployment Pre-Flight Verification: Test Environment
+
+**Context:** User (Jason) requested deployment rerun targeting `agent-resolution-test` environment with seeded data. Hicks assigned to execute `.\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test" -Location "eastus2" -SeedSampleTickets` and validate.
+
+**Pre-Flight Check Performed:**
+
+1. **Architecture Alignment**
+   - ✅ Setup-Solution.ps1 matches approved Phase 2.5 single-command deployment
+   - ✅ Environment parameter `agent-resolution-test` uses dynamic naming (not hardcoded resource group)
+   - ✅ `-SeedSampleTickets` flag correctly maps to 15-ticket baseline per approved reseed fix
+   - ✅ Location `eastus2` standard per team decisions
+
+2. **Deployment Target Verification**
+   - ✅ Azure subscription: TSJasonFarrell-Sub (correct)
+   - ✅ Azure CLI user: jasonfarrell@MngEnvMCAP331427.onmicrosoft.com (authenticated)
+   - ✅ AZD environment: agent-resolution-test (test target, NOT production)
+   - ✅ Default environment correctly set in azd
+
+3. **Code State**
+   - ✅ Branch: main at ad8a6b2 (includes merged reseed fix commits)
+   - ✅ Build: succeeds (NU1603 warnings pre-existing, non-blocking)
+   - ✅ Changes approved: Reseed fix + AdminReseedIntegrationTests.cs (approved 2026-05-10 code review)
+
+4. **Infrastructure Readiness**
+   - ✅ Prerequisites present: Azure CLI, azd, .NET SDK, correct RBAC roles
+   - ✅ Azure Container Apps infrastructure pipeline intact
+   - ✅ Managed identity setup matches documented flow
+
+5. **Data Reset Contract**
+   - ✅ Setup-Solution.ps1 line 667 always passes `-SeedSampleTickets` to Reset-Data.ps1
+   - ✅ Reset-Data.ps1 sends request body with `{ ResetTickets: true, SeedSampleTickets: true }`
+   - ✅ Path: delete all → insert 15 fresh (INC0010001–INC0010015) → reset sequence
+
+**Deployment Guardrails Documented:**
+- Test environment (agent-resolution-test) ≠ production
+- Redeployment will replace all Azure Container Apps instances
+- Database reset will delete all existing tickets (intentional per contract)
+- Admin API key ephemeral per setup run (not for production as-is)
+- 15-minute deployment window expected (documented in SETUP.md)
+
+**Verdict: ✅ APPROVED FOR DEPLOYMENT**
+
+**No blockers or risks identified. Hicks may proceed.**
+
+**Deployment command verified:**
+```powershell
+.\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test" -Location "eastus2" -SeedSampleTickets
+```
+
+### 2026-05-08: Test Environment Deployment — Completion & Validation
+
+**Status:** ✅ **APPROVED & COMPLETED**
+
+Deployment of test environment `agent-resolution-test` executed successfully per pre-flight verification. Guardrail check approved non-production deployment. Coordinator validation confirmed:
+- Web app responding (HTTP 200)
+- Tickets API healthy with database connected
+- Resolution API healthy
+- 15 seeded tickets in New state
+
+**Known Issue Documented:** SQL Server public network access enabled (temporary workaround; private endpoints not yet configured). Production mitigation required.
+
+**References:** 
+- `.squad/orchestration-log/2026-05-08T13-59-14Z-apone.md`
+- `.squad/orchestration-log/2026-05-08T13-59-14Z-hicks.md`
+- `.squad/orchestration-log/2026-05-08T13-59-14Z-coordinator.md`
+- `.squad/log/2026-05-08T13-59-14Z-test-deployment-with-data.md`

@@ -1128,3 +1128,54 @@ END
 **References:** Apone's design review; AdminEndpoints.cs lines 52-69; AdminEndpointsTests.cs
 
 ---
+
+### 2026-05-08: SQL Server Public Access Required for Container Apps (Hicks)
+
+**By:** Hicks (Backend / Infrastructure)  
+**Status:** Observed (workaround, temporary)  
+**Date:** 2026-05-08
+
+## Context
+
+During test environment deployment (`agent-resolution-test`), the .NET API Container App failed to connect to Azure SQL Server with error:
+
+```
+Deny Public Network Access is set to Yes. 
+Connection was denied because Deny Public Network Access is set to Yes.
+```
+
+## Decision
+
+**Temporarily enabled SQL Server public network access** to unblock the test deployment. The Container App connects via Entra authentication (managed identity with `db_owner` role), but public network access must be enabled for the connection to succeed.
+
+## Infrastructure State
+
+- **SQL Server:** `sql-agent-resolution-test` in `rg-agent-resolution-test`
+- **Setting:** `publicNetworkAccess="Enabled"`
+- **Authentication:** Entra-only (no SQL logins)
+- **Container App MI:** Granted `db_owner` on database
+
+## Known Issue
+
+The ideal production configuration uses **private endpoints** so the Container App accesses SQL via VNet integration without public exposure. The current deployment does not include private endpoints, so public access is required.
+
+## Action Needed (Production)
+
+For production environment:
+- Add VNet + subnet for Container Apps Environment
+- Add private endpoint for SQL Server
+- Disable SQL public network access
+- Update Bicep: `infra/resources.bicep`
+
+## Files Referenced
+
+- `scripts/Setup-Solution.ps1` — deployment script that enables public access on error
+- `infra/resources.bicep` — SQL Server resource definition
+
+## Validation
+
+- API startup successful after enabling public access ✅
+- Database migrations applied automatically ✅
+- 15 sample tickets seeded via `/api/admin/reset-data` ✅
+
+---
