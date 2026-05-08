@@ -1179,3 +1179,96 @@ For production environment:
 - 15 sample tickets seeded via `/api/admin/reset-data` ✅
 
 ---
+
+### 2026-05-08: Container App Topology Gap: Dev vs Test Discrepancy (Apone)
+
+**By:** Apone (Architect)  
+**Status:** DECISION REQUIRED  
+**Scope:** Deployment consistency  
+
+**Problem Statement**
+
+User observation: **Dev has a container app deployed for each agent, but test only has 2 container apps deployed.**
+
+Investigation found a mismatch between intended architecture and deployed reality.
+
+**Current Reality (Verified)**
+
+**What Setup-Solution.ps1 Actually Deploys:**
+
+Per environment (dev, test, any):
+1. `ca-api-{env}` — .NET Tickets API (Container App)
+2. `ca-res-{env}` — Python Resolution API (Container App)
+
+**Total: 2 container apps per environment** (both in dev and test)
+
+**Source:** `scripts/Setup-Solution.ps1` lines 372 (API) and 496 (Resolution)
+
+The script uses `az containerapp create` directly; no conditional logic based on environment.
+
+**Dev Extra Containers (Not from Setup-Script):**
+- `ca-mcp` — MCP Server candidate (stub module: 0 bytes, disabled)
+- `ca-incident`, `ca-classifier`, `ca-request`, `ca-escalation`, `ca-resolution` — Artifact of hosted-agents migration experiment
+- Status: Manual deployments; not part of current scripted path
+
+**Intended Architecture (From AgenticResolution_Architecture.md)**
+
+| Component | Azure Service | Status |
+|-----------|---------------|--------|
+| Python Resolution API | Container App (external ingress) | ✅ DEPLOYED |
+| MCP Server | Container App (internal ingress) | ❌ NOT DEPLOYED / Phase 2 Candidate |
+| Foundry Agents (triage + summarizer) | Azure AI Foundry | 🔄 Phase 2 (not Container Apps) |
+
+**Phase 2 Design (From decisions.md):**
+- **Foundry agents are NOT container apps.**
+- They are deployed in Azure AI Foundry (not Container Apps Environment)
+- Orchestrated by the Python Resolution API
+- No separate ingress; no separate container app per agent
+
+**Clarification:** "Agent container app per dev" likely means either manual/ad-hoc deployments to dev that test doesn't have, or confusion between Foundry agents (which are deployed but not as container apps) and Container Apps.
+
+**Root Cause**
+
+**Setup-Solution.ps1 deploys a fixed 2-container topology** (Tickets API + Resolution API) regardless of environment. This aligns with **Phase 1** requirements but diverges from Architecture doc which envisions an **optional MCP Server** container app.
+
+**No environment-specific branching logic.** Test and dev run identical deployment code.
+
+**Decision Required: Three Options**
+
+**Option 1: Declare Current as Correct (Recommended)**
+- **Keep:** 2 container apps per environment (Tickets API + Python Resolution API)
+- **Rationale:** MCP Server was designed but deprioritized; Phase 2 uses Foundry agents (not container apps). Simpler is better for PoC.
+- **Action:** Delete stub modules (`containerapp-mcp.bicep`, `containerapp-agent.bicep`), update Architecture doc to remove MCP Server, lock this topology.
+
+**Option 2: Deploy MCP Server to All Environments**
+- **Change:** 3 container apps per environment (Tickets API + Python Resolution API + MCP Server)
+- **Rationale:** Aligns with Architecture doc design; MCP Server handles tool invocation from agents.
+- **Action:** Flesh out `containerapp-mcp.bicep`, wire it into setup script, deploy to both dev and test.
+- **Owner:** Hicks (backend) — Phase 2 parallel track
+- **Estimated Effort:** 2–3 days (MCP spec + setup integration)
+
+**Option 3: Environment-Specific Topology**
+- **Change:** Dev gets MCP Server; test gets only 2 apps (cost control)
+- **Rationale:** Dev for experimentation; test for cost-minimal gate
+- **Action:** Add `-Environment` parameter branching in setup script
+- **Trade-off:** Operational complexity; dev/test parity breaks
+
+**Recommendation**
+
+**Vote for Option 1 (Current = Correct)** because:
+1. Phase 1 scope is complete; MCP Server is Phase 2+ design
+2. Foundry agents live in Foundry, not in Container Apps
+3. Simpler architecture = lower demo cost
+4. Setup script is idempotent; can reprovision both environments identically
+
+**Supporting Evidence**
+
+- **Coordinator Evidence:** Dev (7 apps) vs Test (2 apps) confirmed
+- **Hicks Finding:** Setup-Solution.ps1 lines 372, 496 deploy only 2 containers regardless of environment
+- **Apone Finding:** Dev extras are stale/manual or experimental; not part of current scripted topology
+
+**Next Step:** Team votes on Option 1/2/3. Once decided:
+- **If Option 1:** Remove stub modules; close decision
+- **If Option 2/3:** Assign Hicks; create Phase 2 task; open MCP deployment work item
+
+---

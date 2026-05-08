@@ -298,3 +298,10 @@ Deployment of test environment `agent-resolution-test` executed successfully per
 - `.squad/orchestration-log/2026-05-08T13-59-14Z-hicks.md`
 - `.squad/orchestration-log/2026-05-08T13-59-14Z-coordinator.md`
 - `.squad/log/2026-05-08T13-59-14Z-test-deployment-with-data.md`
+
+### 2026-05-08: Container App Topology Gap Analysis
+- **Finding:** Setup-Solution.ps1 deploys **exactly 2 container apps per environment** (`ca-api-{env}` and `ca-res-{env}`) regardless of environment (dev or test). No environment-specific branching.
+- **Architecture vs Reality:** AgenticResolution_Architecture.md envisions Python Resolution API + optional MCP Server (2 apps total); Bicep modules exist for MCP (`containerapp-mcp.bicep`) and agents (`containerapp-agent.bicep`) but are **0 bytes (stubs, not deployed)**.
+- **Phase 2 Clarification:** Foundry agents (triage + summarizer) are deployed in **Azure AI Foundry, not as Container Apps**. They are orchestrated by the Python Resolution API, not separate ingress points.
+- **User Observation Explained:** "Dev has container app per agent" likely indicates manual/ad-hoc deployments to dev not present in test. Recommend verifying via `az containerapp list --resource-group rg-agent-resolution-dev` and cleaning up stale containers before re-running setup script.
+- **Recommendation:** Declare **2-container topology (Tickets API + Resolution API) as Phase 1 correct**. MCP Server deployment is Phase 2+ design; stub modules should remain disabled until architecture gates clear. Decision documented in `.squad/decisions.md` (Container App Topology Gap section, 2026-05-08).
