@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     This script calls the /api/admin/reset-data endpoint to reset all tickets to New status
-    and unassigned state. Optionally seeds sample tickets for demo purposes.
+    and unassigned state. Optionally seeds 15 sample tickets for demo purposes.
     
     Requires authentication via X-Admin-Api-Key header. Admin endpoints must be enabled
     in the API configuration.
@@ -22,7 +22,7 @@
     - Prompt (if interactive)
 
 .PARAMETER SeedSampleTickets
-    If specified, seeds 5 sample tickets (all New/unassigned) after reset.
+    If specified, seeds 15 sample tickets (all New/unassigned) after reset.
 
 .PARAMETER SkipReset
     If specified, skips resetting existing tickets and only seeds if requested.

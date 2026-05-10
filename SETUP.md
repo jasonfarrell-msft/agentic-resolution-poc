@@ -31,7 +31,7 @@ This single command provisions all infrastructure, builds containers, configures
 6. **Configures database access** — Creates database users for managed identities with appropriate permissions
 7. **Configures secrets and roles** — SQL connection string (Entra auth) stored in Key Vault, RBAC permissions assigned
 8. **Resets database** — All tickets set to New/unassigned baseline state
-9. **Optionally seeds sample data** — 5 demo tickets (with `-SeedSampleTickets` flag)
+9. **Optionally seeds sample data** — 15 demo tickets covering common IT support scenarios (with `-SeedSampleTickets` flag)
 
 **Key Security Features:**
 - **Entra-only authentication:** Azure SQL Server configured with Entra (Azure AD) authentication only — no SQL passwords

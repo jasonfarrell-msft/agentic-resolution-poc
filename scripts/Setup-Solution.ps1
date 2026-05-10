@@ -12,7 +12,7 @@
     - Secret configuration (SQL connection strings with Entra auth, admin API keys)
     - Database migrations (automatic on first API startup)
     - Data reset (all tickets to New/unassigned)
-    - Optional sample data seeding
+    - Sample data seeding (15 demo tickets covering common IT support scenarios)
 
     SQL Authentication:
     - Uses Entra (Azure AD) authentication exclusively - no SQL passwords
@@ -516,9 +516,62 @@ if (-not $SkipContainerApps) {
         --role AcrPull `
         --scope $acrId `
         --only-show-errors 2>&1 | Out-Null
-    
+
+    # Grant least-privilege Azure OpenAI inference access to Resolution identity
+    Write-Host "  Granting Azure OpenAI inference role to Resolution identity..." -ForegroundColor Gray
+    $openAiEndpoint = $env:AZURE_OPENAI_ENDPOINT
+    if ([string]::IsNullOrWhiteSpace($openAiEndpoint)) {
+        $openAiEndpoint = "https://oai-agentic-res-src-dev.cognitiveservices.azure.com/"
+    }
+
+    try {
+        $openAiAccountName = ([Uri]$openAiEndpoint).Host.Split('.')[0]
+    }
+    catch {
+        Write-Error "Invalid Azure OpenAI endpoint '$openAiEndpoint'."
+        exit 1
+    }
+
+    $openAiAccount = az cognitiveservices account list --only-show-errors |
+        ConvertFrom-Json |
+        Where-Object { $_.name -eq $openAiAccountName } |
+        Select-Object -First 1
+
+    if (-not $openAiAccount) {
+        Write-Error "Azure OpenAI account '$openAiAccountName' was not found. Cannot grant Resolution API inference access."
+        exit 1
+    }
+
+    $openAiAccountId = $openAiAccount.id
+    $openAiUserRoleId = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd" # Cognitive Services OpenAI User
+    $openAiRoleDefinitionId = "/subscriptions/$($account.id)/providers/Microsoft.Authorization/roleDefinitions/$openAiUserRoleId"
+    $existingOpenAiRoleCount = az role assignment list `
+        --assignee $resolutionIdentityPrincipalId `
+        --scope $openAiAccountId `
+        --query "[?roleDefinitionId=='$openAiRoleDefinitionId'] | length(@)" `
+        -o tsv `
+        --only-show-errors
+
+    if (-not $existingOpenAiRoleCount) {
+        $existingOpenAiRoleCount = 0
+    }
+
+    if ([int]$existingOpenAiRoleCount -eq 0) {
+        az role assignment create `
+            --assignee-object-id $resolutionIdentityPrincipalId `
+            --assignee-principal-type ServicePrincipal `
+            --role $openAiUserRoleId `
+            --scope $openAiAccountId `
+            --only-show-errors 2>&1 | Out-Null
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to grant Cognitive Services OpenAI User role to Resolution identity."
+            exit $LASTEXITCODE
+        }
+    }
+
     Start-Sleep -Seconds 5
-    
+
     # Create Container App
     Write-Host "  Creating Container App: $resolutionAppName" -ForegroundColor Gray
     
@@ -653,9 +706,10 @@ if (-not $SkipDataReset) {
     }
     
     if (-not $apiReady) {
-        Write-Warning "API did not become available within $maxWaitSeconds seconds."
-        Write-Host "You can reset data manually later with:" -ForegroundColor Yellow
-        Write-Host "  .\scripts\Reset-Data.ps1 -ApiBaseUrl $apiUrl -AdminApiKey $adminApiKey" -ForegroundColor Gray
+        Write-Error "API did not become available within $maxWaitSeconds seconds. Cannot seed sample tickets."
+        Write-Host "Try running data reset manually once the API is available:" -ForegroundColor Yellow
+        Write-Host "  .\scripts\Reset-Data.ps1 -ApiBaseUrl $apiUrl -AdminApiKey $adminApiKey -SeedSampleTickets" -ForegroundColor Gray
+        exit 1
     } else {
         Write-Host "`nResetting data via API..." -ForegroundColor Cyan
         Write-Host "Using admin API key: $($adminApiKey.Substring(0,8))..." -ForegroundColor Gray

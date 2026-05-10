@@ -55,7 +55,7 @@ The `Setup-Solution.ps1` script provides a complete deployment experience that h
 4. **Data Baseline**:
    - Run database migrations on first API startup
    - Reset all tickets to New/unassigned state
-   - Optionally seed sample tickets
+   - Optionally seed 15 sample tickets covering common IT support scenarios
 
 ### What Gets Created
 

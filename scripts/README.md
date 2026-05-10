@@ -95,19 +95,23 @@ Knowledge Base articles and comments are preserved.
 
 ## Sample Tickets
 
-When `-SeedSampleTickets` is specified, 5 realistic demo tickets are created:
+When `-SeedSampleTickets` is specified, 15 realistic demo tickets are created covering common IT support scenarios:
 
-1. **INC0010001** - Unable to access email on mobile device (High)
-2. **INC0010002** - Printer not responding in conference room B (Moderate)
-3. **INC0010003** - VPN connection drops intermittently (High)
-4. **INC0010004** - Request access to SharePoint site (Low)
-5. **INC0010005** - Laptop running very slow (Moderate)
+- Email issues (mobile access, Outlook connectivity)
+- Hardware problems (printers, monitors, slow laptops)
+- Network issues (VPN connectivity)
+- Software requests (Adobe, SharePoint access)
+- Account management (password resets, MFA setup)
+- Cloud storage (OneDrive sync issues)
+- Security (MFA registration)
+- Teams/communication issues
 
 All sample tickets:
 - Start in **New** state
 - Are **unassigned** (AssignedTo = null)
 - Have realistic descriptions aligned with Knowledge Base articles
-- Created at staggered times (15-120 minutes ago)
+- Range in priority from Low to Critical
+- Created at staggered times (10-480 minutes ago)
 
 ---
 
