@@ -402,6 +402,16 @@ Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `h
 - `AdminAuthenticationTests` — 7 tests validating middleware behavior (401/403/200 responses, case sensitivity, empty header, health check bypass)
 - `AdminEndpointsTests` — 7 tests validating reset logic and health check
 
+### 2026-05-10: test3 Deployment Complete
+
+- Confirmed deletion of `rg-agent-resolution-test2` via `az group exists --name rg-agent-resolution-test2` returned false.
+- Deployed `agent-resolution-test3` to `rg-agent-resolution-test3` in eastus2 using `Setup-Solution.ps1 -Environment "agent-resolution-test3" -Location "eastus2" -SeedSampleTickets`.
+- Deployment log: `C:\Users\jasonfarrell\AppData\Local\agentic-resolution-deploy-logs\setup-agent-resolution-test3-20260509-194245.out.log`.
+- Resolved azd prompts (set AZURE_SUBSCRIPTION_ID and AZURE_LOCATION environment variables).
+- Fixed firewall and seeding issues; configured SQL database users and admin API key.
+- **Final validation:** Provisioning state Succeeded; web app HTTP 200; API healthy with database connected; Resolution API `/health` healthy; 15 tickets seeded (INC0010001–INC0010015) in New state.
+- Environment ready for testing and integration work.
+
 **Key Learnings:**
 1. **Disabled by default is not enough** — Add authentication on top. Defense-in-depth pattern: both config gate AND API key auth. If someone misconfigures and enables the endpoint, it still requires the key.
 2. **Ephemeral keys work for internal tooling** — Not suitable for multi-user/long-lived APIs, but perfect for setup automation where each session is a discrete event. The key only exists in memory during setup; no audit trail needed across sessions.
@@ -515,3 +525,10 @@ Added diagnostic logging for operational visibility. No functional behavior chan
 - **Fix applied:** Granted `Cognitive Services OpenAI User` on the Azure AI Services account `oai-agentic-res-src-dev` only, which is the least-privilege built-in role that includes chat completions data actions.
 - **Automation update:** `scripts/Setup-Solution.ps1` now grants that role to the Resolution API managed identity during Container Apps provisioning.
 - **Validation:** Resolution API `/health` returned healthy. A direct `/resolve` probe reached the service but was blocked by an existing workflow lock (`Workflow is already running`), so user should retry Resolve with AI after the in-flight run clears or the container is restarted.
+### 2026-05-09: test2 Cleanup + test3 Deployment
+- Queued deletion of `rg-agent-resolution-test2` with `az group delete --yes --no-wait`; final validation showed the resource group absent.
+- Command used: `.\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test3" -Location "eastus2" -SeedSampleTickets`.
+- Deployment log: `C:\Users\jasonfarrell\AppData\Local\agentic-resolution-deploy-logs\setup-agent-resolution-test3-20260509-194245.out.log` (stderr beside it as `.err.log`).
+- `azd up` initially blocked on an interactive subscription prompt; stopped that process and set azd defaults plus `AZURE_SUBSCRIPTION_ID`/`AZURE_LOCATION` on the environment before rerun.
+- Setup provisioned infrastructure and both container apps, but the script timed out before seeding after SQL database user configuration was blocked by the client firewall. Added a temporary client firewall rule, ran `Configure-DatabaseUsers.ps1`, then removed the rule.
+- Seeded 15 sample tickets through the admin endpoint using a temporary key, then reverted `AdminEndpoints__ApiKey` to `secretref:admin-api-key`. Final validation: API healthy/database connected, web HTTP 200, Resolution API `/health` healthy, 15 tickets seeded.
