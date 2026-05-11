@@ -39,6 +39,20 @@ else if (Details is null)
 }
 else
 {
+    @if (!string.IsNullOrWhiteSpace(AbandonErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Failed to abandon workflow.</strong> @AbandonErrorMessage
+            <button type="button" class="btn-close" @onclick="@(() => AbandonErrorMessage = null)" aria-label="Close"></button>
+        </div>
+    }
+    @if (AbandonSucceeded)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <strong>Workflow abandoned.</strong> The ticket workflow has been stopped.
+            <button type="button" class="btn-close" @onclick="@(() => AbandonSucceeded = false)" aria-label="Close"></button>
+        </div>
+    }
     <div class="page-header">
         <div>
             <h1>Ticket @Details.Ticket.Number</h1>
@@ -69,6 +83,20 @@ else
         </div>
         <div class="d-flex flex-wrap gap-2 justify-content-end">
             <a class="btn btn-outline-secondary" href="/tickets" aria-label="Back to ticket list">← Back to ticket list</a>
+            @if (CanAbandon)
+            {
+                <button class="btn btn-outline-danger" @onclick="AbandonWorkflowAsync" disabled="@IsAbandoning">
+                    @if (IsAbandoning)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        <span>Abandoning...</span>
+                    }
+                    else
+                    {
+                        <span>Abandon Workflow</span>
+                    }
+                </button>
+            }
             @if (CanResolve)
             {
                 <a class="btn btn-primary" href="@ResolveUrl">
@@ -182,6 +210,9 @@ else
     private TicketDetailResponse? Details;
     private bool IsLoading = true;
     private string? ErrorMessage;
+    private string? AbandonErrorMessage;
+    private bool AbandonSucceeded;
+    private bool IsAbandoning;
     private CancellationTokenSource? _loadCts;
 
     protected override async Task OnParametersSetAsync()
@@ -239,11 +270,41 @@ else
     private bool CanResolve =>
         Details?.Ticket.State is TicketState.New or TicketState.InProgress;
 
+    private bool CanAbandon =>
+        Details?.Ticket.State is TicketState.InProgress;
+
     private string ResolveUrl => $"/tickets/{Uri.EscapeDataString(Number)}/resolve";
 
     private async Task RetryLoad()
     {
         await StartLoadingDetailsAsync();
+    }
+
+    private async Task AbandonWorkflowAsync()
+    {
+        if (IsAbandoning || string.IsNullOrWhiteSpace(Number))
+        {
+            return;
+        }
+
+        AbandonErrorMessage = null;
+        AbandonSucceeded = false;
+        IsAbandoning = true;
+
+        try
+        {
+            await ApiClient.AbandonWorkflowAsync(Number);
+            AbandonSucceeded = true;
+            await StartLoadingDetailsAsync();
+        }
+        catch (Exception ex)
+        {
+            AbandonErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsAbandoning = false;
+        }
     }
 
     private static string GetAssignee(TicketResponse ticket) =>

@@ -98,6 +98,14 @@ public sealed class TicketApiClient
         return await ReadRequiredAsync<KnowledgeArticleDetailResponse>(response, cancellationToken);
     }
 
+    public async Task<TicketResponse> AbandonWorkflowAsync(
+        string number, CancellationToken cancellationToken = default)
+    {
+        var encodedNumber = Uri.EscapeDataString(number);
+        var response = await _httpClient.PostAsync($"api/tickets/{encodedNumber}/abandon", null, cancellationToken);
+        return await ReadRequiredAsync<TicketResponse>(response, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<string>> GetArticleCategoriesAsync(
         CancellationToken cancellationToken = default)
     {

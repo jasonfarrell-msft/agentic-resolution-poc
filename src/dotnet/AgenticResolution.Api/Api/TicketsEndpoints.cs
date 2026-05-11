@@ -66,6 +66,7 @@ public static class TicketsEndpoints
         endpoints.MapGet("/{number}/details", GetDetailsByNumberAsync);
         endpoints.MapGet("/{number}/comments", GetCommentsAsync);
         endpoints.MapPost("/{number}/comments", CreateCommentAsync).AddEndpointFilter<ValidationFilter<CreateCommentRequest>>();
+        endpoints.MapPost("/{number}/abandon", AbandonWorkflowAsync);
         endpoints.MapGet("/", ListAsync);
         endpoints.MapPut("/{id:guid}", UpdateAsync).AddEndpointFilter<ValidationFilter<UpdateTicketRequest>>();
 
@@ -285,6 +286,38 @@ public static class TicketsEndpoints
         await db.SaveChangesAsync(ct);
 
         return TypedResults.Created($"/api/tickets/{number}/comments", CommentResponse.From(comment));
+    }
+
+    private static async Task<Results<Ok<TicketResponse>, NotFound, ProblemHttpResult>> AbandonWorkflowAsync(
+        string number, AppDbContext db, CancellationToken ct)
+    {
+        var ticket = await db.Tickets.FirstOrDefaultAsync(t => t.Number == number, ct);
+        if (ticket is null) return TypedResults.NotFound();
+
+        if (ticket.State != TicketState.InProgress)
+        {
+            return TypedResults.Problem(
+                detail: $"Ticket {number} is not in InProgress state and cannot be abandoned. Current state: {ticket.State}",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        ticket.State = TicketState.New;
+        ticket.UpdatedAt = DateTime.UtcNow;
+
+        var comment = new TicketComment
+        {
+            Id = Guid.NewGuid(),
+            TicketId = ticket.Id,
+            Author = "System",
+            Body = "Workflow abandoned by user. Ticket reset to New state for retry.",
+            IsInternal = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        db.Comments.Add(comment);
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.Ok(TicketResponse.From(ticket));
     }
 }
 
