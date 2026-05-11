@@ -122,9 +122,21 @@ else
                             {
                                 <span class="badge text-muted">Checking...</span>
                             }
+                            else if (McpServerStatus == ServiceStatus.NotConfigured)
+                            {
+                                <span class="badge text-muted">Not Configured</span>
+                            }
+                            else if (McpServerStatus == ServiceStatus.Healthy)
+                            {
+                                <span class="badge text-success">✓ Healthy</span>
+                            }
+                            else if (McpServerStatus == ServiceStatus.Unhealthy)
+                            {
+                                <span class="badge text-danger">✗ Unhealthy</span>
+                            }
                             else
                             {
-                                <span class="badge text-muted">Not Implemented</span>
+                                <span class="badge text-muted">? Unknown</span>
                             }
                         </div>
                     </div>
@@ -220,6 +232,7 @@ else
     private ServiceStatus TicketsApiStatus = ServiceStatus.Unknown;
     private ServiceStatus DatabaseStatus = ServiceStatus.Unknown;
     private ServiceStatus ResolutionApiStatus = ServiceStatus.Unknown;
+    private ServiceStatus McpServerStatus = ServiceStatus.Unknown;
 
     protected override async Task OnInitializedAsync()
     {
@@ -245,12 +258,14 @@ else
                 : ServiceStatus.Unhealthy;
 
             ResolutionApiStatus = await CheckResolutionApiHealthAsync();
+            McpServerStatus = await CheckMcpServerHealthAsync();
         }
         catch
         {
             TicketsApiStatus = ServiceStatus.Unhealthy;
             DatabaseStatus = ServiceStatus.Unknown;
             ResolutionApiStatus = ServiceStatus.Unknown;
+            McpServerStatus = ServiceStatus.Unknown;
         }
         finally
         {
@@ -274,6 +289,29 @@ else
                 return ServiceStatus.NotConfigured;
             }
 
+            var httpClient = HttpClientFactory.CreateClient();
+            httpClient.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
+            httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+            var response = await httpClient.GetAsync("/health");
+            return response.IsSuccessStatusCode ? ServiceStatus.Healthy : ServiceStatus.Unhealthy;
+        }
+        catch
+        {
+            return ServiceStatus.Unhealthy;
+        }
+    }
+
+    private async Task<ServiceStatus> CheckMcpServerHealthAsync()
+    {
+        var baseUrl = Configuration["McpServer:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return ServiceStatus.NotConfigured;
+        }
+
+        try
+        {
             var httpClient = HttpClientFactory.CreateClient();
             httpClient.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
             httpClient.Timeout = TimeSpan.FromSeconds(5);

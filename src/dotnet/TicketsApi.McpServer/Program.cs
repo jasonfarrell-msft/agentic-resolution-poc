@@ -21,5 +21,6 @@ builder.Services
 var app = builder.Build();
 
 app.MapMcp();
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow }));
 
 app.Run();
