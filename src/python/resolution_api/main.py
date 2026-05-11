@@ -184,54 +184,61 @@ async def workflow_event_stream(ticket_number: str) -> AsyncGenerator[str, None]
         ticket_input = TicketInput(ticket_number=ticket_number)
         stream = workflow.run(ticket_input, stream=True)
 
-        async with asyncio.timeout(run_timeout_seconds):
-            async for event in stream:
-                event_type = getattr(event, "type", None)
-                executor_id = getattr(event, "executor_id", None)
-                stage = stage_for_executor(executor_id)
+        try:
+            async with asyncio.timeout(run_timeout_seconds):
+                async for event in stream:
+                    event_type = getattr(event, "type", None)
+                    executor_id = getattr(event, "executor_id", None)
+                    stage = stage_for_executor(executor_id)
 
-                if event_type == "executor_invoked":
-                    yield await capture.emit(stage, "started")
-                elif event_type == "executor_completed":
-                    result = summarize_executor_result(executor_id, getattr(event, "data", None))
-                    yield await capture.emit(stage, "completed", result)
+                    if event_type == "executor_invoked":
+                        yield await capture.emit(stage, "started")
+                    elif event_type == "executor_completed":
+                        result = summarize_executor_result(executor_id, getattr(event, "data", None))
+                        yield await capture.emit(stage, "completed", result)
 
-                    if executor_id == "ResolutionExecutor":
+                        if executor_id == "ResolutionExecutor":
+                            yield await capture.emit(
+                                "workflow",
+                                "resolved",
+                                result,
+                                message="Ticket resolution completed.",
+                                terminal=True,
+                            )
+                        elif executor_id == "EscalationExecutor":
+                            yield await capture.emit(
+                                "workflow",
+                                "escalated",
+                                result,
+                                message="Ticket was escalated to a human assignee.",
+                                terminal=True,
+                            )
+                    elif event_type in ("executor_failed", "failed", "error"):
+                        detail = to_jsonable(getattr(event, "details", None) or getattr(event, "data", None))
                         yield await capture.emit(
-                            "workflow",
-                            "resolved",
-                            result,
-                            message="Ticket resolution completed.",
+                            stage,
+                            "failed",
+                            {"details": detail},
+                            error=str(detail),
                             terminal=True,
                         )
-                    elif executor_id == "EscalationExecutor":
-                        yield await capture.emit(
-                            "workflow",
-                            "escalated",
-                            result,
-                            message="Ticket was escalated to a human assignee.",
-                            terminal=True,
-                        )
-                elif event_type in ("executor_failed", "failed", "error"):
-                    detail = to_jsonable(getattr(event, "details", None) or getattr(event, "data", None))
-                    yield await capture.emit(
-                        stage,
-                        "failed",
-                        {"details": detail},
-                        error=str(detail),
-                        terminal=True,
-                    )
-                    return
+                        return
 
-            await stream.get_final_response()
+                await stream.get_final_response()
 
-        if not capture.terminal_emitted:
-            yield await capture.emit(
-                "workflow",
-                "completed",
-                message="Workflow completed without a resolution or escalation action.",
-                terminal=True,
-            )
+            if not capture.terminal_emitted:
+                yield await capture.emit(
+                    "workflow",
+                    "completed",
+                    message="Workflow completed without a resolution or escalation action.",
+                    terminal=True,
+                )
+        finally:
+            # asyncio.timeout raises CancelledError (a BaseException) inside the async-for
+            # loop, which bypasses ResponseStream's except-Exception cleanup hooks and leaves
+            # workflow._is_running = True. Explicitly reset the flag so the next resolve
+            # request is not blocked by a stale lock from a timed-out or abandoned run.
+            workflow._reset_running_flag()
     except TimeoutError:
         yield await capture.emit(
             "workflow",
