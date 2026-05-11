@@ -460,6 +460,7 @@ if (-not $SkipContainerApps) {
             --name $apiAppName `
             --resource-group $resourceGroup `
             --image $apiImageName `
+            --min-replicas 1 `
             --set-env-vars "ASPNETCORE_ENVIRONMENT=Production" "ConnectionStrings__Default=secretref:sql-connection-string" "AdminEndpoints__Enabled=true" "AdminEndpoints__ApiKey=$adminApiKey" "AZURE_CLIENT_ID=$apiIdentityClientId" `
             --only-show-errors
     } else {
@@ -551,6 +552,7 @@ if (-not $SkipContainerApps) {
             --name $mcpAppName `
             --resource-group $resourceGroup `
             --image $mcpImageName `
+            --min-replicas 1 `
             --set-env-vars "TICKETS_API_URL=$apiUrl" "AZURE_CLIENT_ID=$mcpIdentityClientId" `
             --only-show-errors
     } else {
@@ -673,6 +675,7 @@ if (-not $SkipContainerApps) {
             --name $resolutionAppName `
             --resource-group $resourceGroup `
             --image $resolutionImageName `
+            --min-replicas 1 `
             --set-env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpUrl" `
             --only-show-errors
     } else {
