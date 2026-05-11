@@ -56,6 +56,8 @@
   - `Components/Pages/Tickets/Index.razor` awaits `LoadTicketsAsync()` from `OnInitializedAsync` instead of fire-and-forget startup loading, and `TicketApiClient` now returns status/body details for failed REST calls.
   - Infra App Service settings now persist both `ApiClient__BaseUrl` and `ResolutionApi__BaseUrl` for `rg-agentic-res-src-dev`; no Azure deployment was performed during the fix.
 
+- **2026-05-11 — Abandon Workflow UI** — ✅ **Complete** — Implemented Abandon Workflow button in ticket detail page for InProgress tickets. Coordinated with Hicks (backend endpoint) and Vasquez (test coverage). Button visible only for InProgress state, displays busy state during async call, shows success/error alerts, and auto-refreshes ticket data on success. Integrated with TicketApiClient.AbandonWorkflowAsync method. Build passed; full test suite validated (31/31 tests passing).
+
 - **2026-07-14 — Circuit timeout + post-resolution nav fixes.**
   - `Program.cs`: Configured `AddServerSideBlazor()` with `ClientTimeoutInterval = 5 min`, `KeepAliveInterval = 15s`, and `DetailedErrors` in dev. Prevents HubConnection drops during long resolution workflows.
   - `App.razor`: Already had `<ReconnectModal />` — no change needed.
@@ -411,5 +413,22 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
   - Handles "API not configured" gracefully with standard banner
   - Shows "Last checked" timestamp
 - **Build:** dotnet build src/dotnet/AgenticResolution.Web --no-incremental succeeded (0 warnings, 0 errors)
+- **Status:** Complete, ready for deployment
+
+### 2026-05-08 — Abandon stuck workflow UI affordance
+- **Purpose:** Add ability to abandon an in-progress workflow when a ticket is stuck (e.g., ticket 0018 returning "workflow already in progress" error).
+- **Files modified:**
+  - Components/Pages/Tickets/Detail.razor — added "Abandon Workflow" button that appears only for InProgress tickets, shows spinner during abandon operation, displays success/error alerts, refreshes ticket details after successful abandon
+  - Services/TicketApiClient.cs — confirmed AbandonWorkflowAsync method already exists (implemented by Hicks), calls POST /api/tickets/{number}/abandon
+- **UX patterns:**
+  - Button appears in page header actions area only when ticket.State is InProgress
+  - Uses btn-outline-danger class consistent with other destructive actions
+  - Busy state: disabled button with Bootstrap spinner-border-sm and "Abandoning..." text
+  - Success: dismissible alert-success banner, auto-refreshes ticket details
+  - Error: dismissible alert-danger banner with API error message
+  - Preserves existing "Resolve with AI" button when applicable
+- **Error handling:** Try/catch around ApiClient call, displays exception message inline, doesn't navigate away on failure
+- **Build:** dotnet build src/dotnet/AgenticResolution.Web --no-restore succeeded (0 warnings, 0 errors)
+- **Tests:** All 22 API tests passed (AgenticResolution.Api.Tests)
 - **Status:** Complete, ready for deployment
 
