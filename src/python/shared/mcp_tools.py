@@ -12,7 +12,7 @@ def create_mcp_tool() -> MCPStreamableHTTPTool:
     if _mcp_tool is None:
         mcp_url = os.environ.get(
             "MCP_SERVER_URL",
-            "https://ca-mcp-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io/mcp"
+            "https://ca-mcp-tocqjp4pnegfo.graybush-af9ee262.eastus2.azurecontainerapps.io"
         )
         _mcp_tool = MCPStreamableHTTPTool(
             name="tickets_api",
