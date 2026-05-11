@@ -8,12 +8,20 @@ namespace AgenticResolution.Api.Api;
 public record ResetDataRequest(bool ResetTickets = true, bool SeedSampleTickets = false);
 public record ResetDataResponse(int TicketsReset, int TicketsSeeded, string Message);
 
+public record CreateKbArticleRequest(
+    string Title,
+    string Body,
+    string Category,
+    string Author,
+    string? Tags = null);
+
 public static class AdminEndpoints
 {
     public static IEndpointRouteBuilder MapAdminApi(this IEndpointRouteBuilder app)
     {
         var endpoints = app.MapGroup("/api/admin").WithTags("Admin");
         endpoints.MapPost("/reset-data", ResetDataAsync);
+        endpoints.MapPost("/kb", CreateKbArticleAsync);
         endpoints.MapGet("/health", HealthAsync);
         return app;
     }
@@ -89,6 +97,46 @@ public static class AdminEndpoints
             Database = canConnect ? "Connected" : "Disconnected",
             Timestamp = DateTime.UtcNow
         });
+    }
+
+    private static async Task<Created<KnowledgeArticleDetailResponse>> CreateKbArticleAsync(
+        CreateKbArticleRequest req,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        var lastArticle = await db.KnowledgeArticles
+            .OrderByDescending(a => a.Number)
+            .FirstOrDefaultAsync(ct);
+
+        int nextNumber = 1001;
+        if (lastArticle != null && lastArticle.Number.StartsWith("KB"))
+        {
+            if (int.TryParse(lastArticle.Number.Substring(2), out int lastNum))
+            {
+                nextNumber = lastNum + 1;
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        var article = new KnowledgeArticle
+        {
+            Id = Guid.NewGuid(),
+            Number = $"KB{nextNumber:D7}",
+            Title = req.Title.Trim(),
+            Body = req.Body.Trim(),
+            Category = req.Category.Trim(),
+            Author = req.Author.Trim(),
+            Tags = req.Tags?.Trim(),
+            ViewCount = 0,
+            IsPublished = true,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        db.KnowledgeArticles.Add(article);
+        await db.SaveChangesAsync(ct);
+
+        return TypedResults.Created($"/api/kb/{article.Number}", KnowledgeArticleDetailResponse.From(article));
     }
 
     private static Ticket[] GetSampleTickets()

@@ -11,7 +11,7 @@ Performs:
 - Infrastructure provisioning via `azd up`
 - Database migrations
 - Data reset to baseline state
-- Optional sample data seeding
+- Sample data seeding (15 demo tickets and 8 KB articles)
 
 ### Usage
 
@@ -19,24 +19,19 @@ Performs:
 # Basic setup
 .\scripts\Setup-Solution.ps1
 
-# Setup with sample demo tickets
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
-
-# CI/CD with environment variable password
-$env:SQL_ADMIN_PASSWORD = "YourSecurePassword123!"
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
-
 # Custom environment and location
 .\scripts\Setup-Solution.ps1 -Environment "prod" -Location "westus2"
+
+# Skip data reset (for code-only updates)
+.\scripts\Setup-Solution.ps1 -SkipDataReset
 ```
 
 ### Parameters
 
 - **`-Environment`**: Name of azd environment (default: current environment)
 - **`-Location`**: Azure region (default: eastus2)
-- **`-SqlAdminPassword`**: SQL Server admin password (prompts if not provided)
-- **`-SeedSampleTickets`**: Seeds 5 demo tickets after reset
-- **`-SkipDataReset`**: Skips data reset step
+- **`-SkipDataReset`**: Skips data reset and seeding steps
+- **`-SeedSampleTickets`**: Backward compatible flag (data seeded by default; use `-SkipDataReset` to disable)
 
 ### Prerequisites
 
@@ -65,7 +60,7 @@ Can be run anytime, not just during deployment. Useful for:
 # Reset with explicit API URL
 .\scripts\Reset-Data.ps1 -ApiBaseUrl "https://api.example.com"
 
-# Reset and seed 5 sample tickets
+# Reset and seed 15 sample tickets
 .\scripts\Reset-Data.ps1 -SeedSampleTickets
 
 # Only seed, don't reset existing tickets
@@ -75,7 +70,7 @@ Can be run anytime, not just during deployment. Useful for:
 ### Parameters
 
 - **`-ApiBaseUrl`**: API base URL (auto-detects from azd environment if omitted)
-- **`-SeedSampleTickets`**: Seeds 5 demo tickets (all New/unassigned)
+- **`-SeedSampleTickets`**: Seeds 15 demo tickets (all New/unassigned)
 - **`-SkipReset`**: Only seeds, doesn't reset existing tickets
 
 ### What Gets Reset
@@ -138,22 +133,18 @@ az role assignment create --assignee <user@domain.com> --role "Contributor" --sc
 az role assignment create --assignee <user@domain.com> --role "User Access Administrator" --scope /subscriptions/<sub-id>
 ```
 
-### "SQL password does not meet requirements"
-SQL admin password must:
-- Be at least 12 characters long
-- Contain uppercase and lowercase letters
-- Contain numbers
-- Contain special characters
-
 ---
 
 ## CI/CD Usage
 
-For automated pipelines, provide the SQL password via environment variable:
+For automated pipelines, the setup script is designed for non-interactive use and does not require any special environment variables:
 
 ```powershell
-$env:SQL_ADMIN_PASSWORD = ${{ secrets.SQL_ADMIN_PASSWORD }}
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
+.\scripts\Setup-Solution.ps1
 ```
 
-This prevents interactive prompts in non-interactive environments.
+The script will:
+- Discover the current Azure CLI authenticated user as SQL Entra admin
+- Provision all infrastructure with Entra-only authentication
+- Configure managed identities for app access
+- Seed 15 demo tickets and 8 knowledge base articles

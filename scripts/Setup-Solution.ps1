@@ -491,6 +491,96 @@ if (-not $SkipContainerApps) {
     Write-Host "✓ .NET API Container App created" -ForegroundColor Green
     Write-Host "  URL: $apiUrl" -ForegroundColor Cyan
     
+    # 2.5.5: Build and Deploy MCP Server Container App
+    Write-Host "`nCreating MCP Server Container App..." -ForegroundColor Cyan
+    $mcpAppName = "ca-mcp-$envName"
+    $mcpImageName = "$acrLoginServer/mcp:latest"
+
+    # Build MCP server image
+    Write-Host "  Building MCP server container image..." -ForegroundColor Gray
+    Write-Host "  Image: $mcpImageName" -ForegroundColor Gray
+
+    Push-Location (Split-Path $PSScriptRoot -Parent)
+    try {
+        az acr build `
+            --registry $acrName `
+            --image mcp:latest `
+            --file src/dotnet/TicketsApi.McpServer/Dockerfile `
+            src/dotnet/TicketsApi.McpServer `
+            --only-show-errors
+    } finally {
+        Pop-Location
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to build MCP server container image"
+        exit $LASTEXITCODE
+    }
+
+    # Create user-assigned managed identity for MCP server
+    $mcpIdentityName = "id-mcp-$envName"
+    Write-Host "  Creating managed identity: $mcpIdentityName" -ForegroundColor Gray
+
+    $mcpIdentity = az identity create `
+        --name $mcpIdentityName `
+        --resource-group $resourceGroup `
+        --location $location `
+        --only-show-errors | ConvertFrom-Json
+
+    $mcpIdentityId = $mcpIdentity.id
+    $mcpIdentityClientId = $mcpIdentity.clientId
+    $mcpIdentityPrincipalId = $mcpIdentity.principalId
+
+    # Grant AcrPull to MCP identity
+    Write-Host "  Granting AcrPull role to MCP identity..." -ForegroundColor Gray
+    az role assignment create `
+        --assignee $mcpIdentityPrincipalId `
+        --role AcrPull `
+        --scope $acrId `
+        --only-show-errors 2>&1 | Out-Null
+
+    Start-Sleep -Seconds 5
+
+    # Create Container App
+    Write-Host "  Creating Container App: $mcpAppName" -ForegroundColor Gray
+
+    $existingMcpApp = az containerapp show --name $mcpAppName --resource-group $resourceGroup 2>$null
+    if ($existingMcpApp) {
+        Write-Host "  Updating existing Container App..." -ForegroundColor Gray
+        az containerapp update `
+            --name $mcpAppName `
+            --resource-group $resourceGroup `
+            --image $mcpImageName `
+            --set-env-vars "TICKETS_API_URL=$apiUrl" "AZURE_CLIENT_ID=$mcpIdentityClientId" `
+            --only-show-errors
+    } else {
+        az containerapp create `
+            --name $mcpAppName `
+            --resource-group $resourceGroup `
+            --environment $caeEnvName `
+            --image $mcpImageName `
+            --target-port 8080 `
+            --ingress external `
+            --registry-server $acrLoginServer `
+            --registry-identity $mcpIdentityId `
+            --user-assigned $mcpIdentityId `
+            --cpu 0.25 --memory 0.5Gi `
+            --min-replicas 1 --max-replicas 2 `
+            --env-vars "TICKETS_API_URL=$apiUrl" "AZURE_CLIENT_ID=$mcpIdentityClientId" `
+            --only-show-errors
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to create/update MCP Server Container App"
+        exit $LASTEXITCODE
+    }
+
+    # Get MCP URL
+    $mcpFqdn = az containerapp show --name $mcpAppName --resource-group $resourceGroup --query properties.configuration.ingress.fqdn -o tsv
+    $mcpUrl = "https://$mcpFqdn/mcp"
+    Write-Host "✓ MCP Server Container App created" -ForegroundColor Green
+    Write-Host "  URL: $mcpUrl" -ForegroundColor Cyan
+
     # 2.6: Create Python Resolution API Container App
     Write-Host "`nCreating Python Resolution API Container App..." -ForegroundColor Cyan
     $resolutionAppName = "ca-res-$envName"
@@ -583,7 +673,7 @@ if (-not $SkipContainerApps) {
             --name $resolutionAppName `
             --resource-group $resourceGroup `
             --image $resolutionImageName `
-            --set-env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" `
+            --set-env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpUrl" `
             --only-show-errors
     } else {
         az containerapp create `
@@ -598,7 +688,7 @@ if (-not $SkipContainerApps) {
             --user-assigned $resolutionIdentityId `
             --cpu 0.5 --memory 1.0Gi `
             --min-replicas 1 --max-replicas 3 `
-            --env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" `
+            --env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpUrl" `
             --only-show-errors
     }
     

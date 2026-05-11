@@ -1359,3 +1359,384 @@ The script uses `az containerapp create` directly; no conditional logic based on
 - **If Option 2/3:** Assign Hicks; create Phase 2 task; open MCP deployment work item
 
 ---
+
+
+---
+
+# Deployment Readiness Audit — Azure SQL Entra Authentication Compliance
+
+**Date:** 2026-05-08  
+**Agent:** Bishop (DevOps/Infrastructure)  
+**Requested by:** Jason Farrell  
+**Status:** 🟡 **BLOCKER — Documentation contains stale SQL password references**
+
+---
+
+## Executive Summary
+
+**Infrastructure is technically ready for deployment**, but **documentation contains misleading stale references** to SQL password authentication that no longer exists. This creates confusion and may cause deployment failures if users follow outdated instructions.
+
+**Recommended action:** Clean up documentation before re-running deployment to `rg-agent-resolution-test`.
+
+---
+
+## Validation Results
+
+### ✅ PASS: Infrastructure Configuration
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| Bicep compiles without errors | ✅ | `az bicep build` exit 0 |
+| SQL Entra-only auth configured | ✅ | `azureADOnlyAuthentication: true` in sqlserver.bicep line 23 |
+| Current user as SQL admin | ✅ | Setup-Solution.ps1 lines 142-165 discovers signed-in user |
+| Entra admin params wired | ✅ | `entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId` flow through main.bicep → resources.bicep → sqlserver.bicep |
+| Connection string uses Entra auth | ✅ | resources.bicep line 64: `Authentication=Active Directory Default` (no User ID/Password) |
+| Managed identity DB users | ✅ | Configure-DatabaseUsers.ps1 creates users via access token authentication |
+| No SQL passwords in Bicep | ✅ | No `administratorLogin` or `administratorLoginPassword` parameters |
+| Role assignments complete | ✅ | API identity: AcrPull, Key Vault Secrets User, db_owner; Web App: Key Vault Secrets User, db_datareader, db_datawriter |
+| Health checks & data seeding | ✅ | Reset-Data.ps1 called after Container Apps ready (lines 664-730) |
+
+**Infrastructure score: 10/10 — Ready for deployment**
+
+---
+
+### 🟡 GAP: Documentation Accuracy
+
+**Files containing stale SQL password references:**
+
+1. **DEPLOY.md lines 130-146** — "SQL Server Password" section with environment variable examples
+   ```powershell
+   $env:SQL_ADMIN_PASSWORD = "YourSecurePassword123!"
+   ```
+   **Impact:** Users will set this variable but Setup-Solution.ps1 no longer reads it — Entra auth is automatic.
+
+2. **SETUP.md lines 79-83** — "SQL Password Requirements" section
+   **Impact:** Entire section is obsolete — no password is ever used or validated.
+
+3. **scripts\README.md lines 25-37** — References `-SqlAdminPassword` parameter
+   ```
+   - **`-SqlAdminPassword`**: SQL Server admin password (prompts if not provided)
+   ```
+   **Impact:** This parameter was removed from Setup-Solution.ps1; documentation is misleading.
+
+4. **scripts\README.md lines 141-156** — Troubleshooting section for SQL password requirements
+   **Impact:** Users will waste time on password complexity when authentication mode has changed.
+
+**Severity:** BLOCKER — Documentation inaccuracy will cause user confusion and support burden.
+
+---
+
+### ✅ PASS: Deployment Script Coverage
+
+Setup-Solution.ps1 performs all required steps in correct order:
+
+1. ✅ Prerequisites validation (Azure CLI, azd, .NET SDK, authentication)
+2. ✅ Discover current Azure user for SQL Entra admin
+3. ✅ Set azd environment parameters (`entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId`) — lines 192-210
+4. ✅ Run `azd up` — provisions SQL (Entra-only), Key Vault, App Service
+5. ✅ Create Container Apps Environment
+6. ✅ Create Azure Container Registry
+7. ✅ Build and push .NET API image (`az acr build`)
+8. ✅ Build and push Python Resolution API image (`az acr build`)
+9. ✅ Create API Container App with managed identity
+10. ✅ Create Resolution Container App with managed identity
+11. ✅ Grant ACR Pull, Key Vault Secrets User, Azure OpenAI User roles
+12. ✅ **Configure database users for managed identities** — lines 632-653 call Configure-DatabaseUsers.ps1
+13. ✅ Wait for API health check (lines 687-706)
+14. ✅ Reset data and seed sample tickets via Reset-Data.ps1
+
+**Deployment script score: 13/13 — Complete coverage**
+
+---
+
+### ✅ PASS: Security & Compliance
+
+| Requirement | Status | Evidence |
+|-------------|--------|----------|
+| MCAPS `AzureSQL_WithoutAzureADOnlyAuthentication_Deny` compliant | ✅ | `azureADOnlyAuthentication: true` in sqlserver.bicep |
+| No SQL passwords in code | ✅ | Grep search found no password parameters in Bicep/scripts |
+| No SQL passwords in Key Vault | ✅ | Connection string uses `Authentication=Active Directory Default` |
+| Managed identities for app access | ✅ | API and Web App use system/user-assigned identities |
+| Current user as SQL admin | ✅ | Signed-in Azure CLI user automatically configured |
+| Least privilege (with caveat) | ✅ | API gets db_owner (for EF migrations); Web App gets read/write only |
+| Secrets stored in Key Vault | ✅ | SQL connection string stored as secret (line 60-67 resources.bicep) |
+| No hardcoded credentials | ✅ | All Azure resources use managed identity or RBAC |
+
+**Security score: 8/8 — Compliant with MCAPS policy**
+
+---
+
+## Remaining Blockers
+
+### 🔴 BLOCKER 1: Stale SQL Password Documentation
+
+**Files requiring updates:**
+- `DEPLOY.md` — Remove "SQL Server Password" section (lines 130-146)
+- `SETUP.md` — Remove "SQL Password Requirements" section (lines 79-83)
+- `scripts\README.md` — Remove `-SqlAdminPassword` parameter docs and troubleshooting (lines 25-37, 141-156)
+
+**Why it's a blocker:** Users following current docs will waste time setting `SQL_ADMIN_PASSWORD` and may report "password not working" issues when authentication is automatic via Entra.
+
+**Estimated fix time:** 5 minutes
+
+---
+
+## Recommended Next Steps
+
+1. **Immediate (before deployment):**
+   - Remove stale SQL password references from DEPLOY.md, SETUP.md, scripts\README.md
+   - Add prominent note about Entra-only authentication behavior
+   
+2. **Deploy to rg-agent-resolution-test:**
+   ```powershell
+   .\scripts\Setup-Solution.ps1 -Environment "agent-resolution-test" -Location "eastus2"
+   ```
+
+3. **Post-deployment validation:**
+   - Verify SQL Server shows Entra admin: `az sql server ad-admin list --server sql-agent-resolution-test --resource-group rg-agent-resolution-test`
+   - Verify connection string in Key Vault: `az keyvault secret show --vault-name kv-agentresolutiontest --name sql-connection-string --query value`
+   - Check API logs for "SQL connection configured for Entra authentication" message
+   - Run manual SQL query as admin to verify managed identity users exist: `SELECT name, type_desc FROM sys.database_principals WHERE type = 'E'`
+
+4. **If deployment fails:**
+   - Check MCAPS policy audit logs: Azure Portal → Policy → Compliance
+   - Verify `azureADOnlyAuthentication` property: `az sql server show --name sql-agent-resolution-test --resource-group rg-agent-resolution-test --query administrators.azureADOnlyAuthentication`
+
+---
+
+## Technical Debt Notes
+
+1. **API identity privilege level:** API gets `db_owner` role because it runs EF migrations on startup (line 68 Configure-DatabaseUsers.ps1). In production, consider:
+   - Separate migration identity (db_owner, used once) from runtime identity (db_datareader + db_datawriter)
+   - Run migrations as part of deployment pipeline (not on app startup)
+   - Grant API identity only `db_datareader`, `db_datawriter`, `db_ddladmin` (for schema changes)
+
+2. **Database user creation timing:** Configure-DatabaseUsers.ps1 runs after Container Apps are created but uses the currently signed-in user's access token. If the script fails:
+   - SQL file is saved to project directory for manual execution
+   - User can run via Azure Portal Query Editor as Entra admin
+   - Script is idempotent and safe to re-run
+
+---
+
+## Files Reviewed
+
+✅ Infrastructure:
+- `infra\main.bicep` — Entra admin parameters flow correctly
+- `infra\resources.bicep` — Connection string uses Entra auth
+- `infra\modules\sqlserver.bicep` — `azureADOnlyAuthentication: true` confirmed
+- `infra\modules\keyvault.bicep` — RBAC-based access control
+
+✅ Scripts:
+- `scripts\Setup-Solution.ps1` — Complete deployment flow, discovers current user, persists Entra admin params
+- `scripts\Configure-DatabaseUsers.ps1` — Creates managed identity DB users with appropriate roles
+- `scripts\Reset-Data.ps1` — Data seeding via admin API endpoint
+
+🟡 Documentation (needs update):
+- `SETUP.md` — Stale SQL password section
+- `DEPLOY.md` — Stale SQL password section
+- `scripts\README.md` — Stale parameter docs
+
+---
+
+**Verdict:** Infrastructure is deployment-ready; documentation must be updated to remove SQL password references before re-running setup to avoid user confusion.
+
+
+---
+
+# Seed Data Readiness - QA Audit Report
+
+**Reporter:** Vasquez (QA Engineer)  
+**Date:** 2025-01-14  
+**Status:** READY WITH MINOR GAPS  
+
+## Executive Summary
+
+Seed data setup is **production-ready** with good test coverage. The system reliably seeds 15 tickets and 8 KB articles. Minor gaps exist in idempotency testing and documentation clarity.
+
+---
+
+## Validation Findings
+
+### ✅ PASS: Ticket Seeding
+
+**Finding:** Setup **always** seeds exactly 15 sample tickets  
+**Evidence:**
+- `AdminEndpoints.cs:94-310` - `GetSampleTickets()` returns 15 hardcoded tickets
+- `Setup-Solution.ps1:720` - Always passes `-SeedSampleTickets` flag to reset script
+- All tickets are `TicketState.New` with `AssignedTo = null`
+- Ticket numbers: `INC0010001` through `INC0010015`
+
+**Coverage:** 
+- ✅ Reset behavior verified in `AdminEndpointsTests.cs`
+- ✅ All 22 tests passing
+- ✅ State transitions tested
+- ✅ Agent field clearing tested
+
+**Verdict:** **PASS**
+
+---
+
+### ⚠️ GAP: Idempotency Not Fully Tested
+
+**Finding:** Seed behavior is idempotent (deletes then re-seeds), but no test validates this explicitly  
+**Evidence:**
+- `AdminEndpoints.cs:54-55` - `ExecuteDeleteAsync` called before seeding
+- `AdminEndpointsTests.cs:272-301` - `SeedSampleTickets_AlwaysDeletesAndReseeds()` simulates the pattern but doesn't verify duplicate prevention explicitly in a re-run scenario
+
+**Risk:** Low - code clearly deletes before seeding, so duplicates impossible  
+**Recommendation:** Add integration test that calls seed endpoint twice and verifies count remains 15
+
+**Verdict:** **GAP** (minor)
+
+---
+
+### ✅ PASS: Knowledge Base Articles Seeding
+
+**Finding:** 8 KB articles are seeded **reliably** via EF migration  
+**Evidence:**
+- `AppDbContext.cs:70` - `HasData(GetSeedArticles())` ensures seeding on first migration
+- Migration `20260510000000_AddKnowledgeBase.cs:50-74` - Inserts 8 articles via raw SQL
+- `Program.cs:86-119` - Idempotent fallback SQL ensures KB table exists even if migration history corrupt
+- Articles: `KB0001001` through `KB0001008`
+
+**Coverage:**
+- ✅ Migration applied on first database startup
+- ✅ Fallback SQL protects against migration history issues
+- ✅ Idempotent (IF NOT EXISTS check in Program.cs)
+
+**Verdict:** **PASS**
+
+---
+
+### ⚠️ GAP: KB Article Seeding Not Covered by Tests
+
+**Finding:** No unit or integration tests validate KB article seed count or content  
+**Risk:** Medium - KB seeding happens via migration which is tested implicitly by EF, but no explicit test verifies the 8 articles are present
+
+**Recommendation:** Add integration test:
+```csharp
+[Fact]
+public async Task Startup_SeedsKnowledgeArticles()
+{
+    // Arrange: fresh in-memory DB
+    // Act: run migrations
+    // Assert: count == 8, verify article numbers KB0001001-KB0001008
+}
+```
+
+**Verdict:** **GAP** (moderate)
+
+---
+
+### ✅ PASS: Reset-Data.ps1 Script
+
+**Finding:** Script correctly calls admin endpoint and reports counts  
+**Evidence:**
+- `Reset-Data.ps1:155-166` - POST to `/api/admin/reset-data`
+- `Reset-Data.ps1:170-172` - Reports `TicketsReset`, `TicketsSeeded`, `Message`
+- Health check before reset (`Reset-Data.ps1:128-138`)
+- Proper error handling for 401/403 status codes
+
+**Behavior:**
+- ✅ Resets existing tickets to New/unassigned
+- ✅ Seeds 15 sample tickets if `-SeedSampleTickets` specified
+- ✅ Reports seeded counts in output
+- ✅ Handles API key auth correctly
+
+**Verdict:** **PASS**
+
+---
+
+### ⚠️ BLOCKER: Documentation Confusion on `-SeedSampleTickets`
+
+**Finding:** SETUP.md and Setup-Solution.ps1 comments are inconsistent  
+**Evidence:**
+- `Setup-Solution.ps1:37` - Says `-SeedSampleTickets` is **deprecated** and seeding is always enabled
+- `SETUP.md:8` - Says setup **optionally** seeds tickets (implying opt-in)
+- Actual behavior: Setup **always** seeds (line 720 hardcodes the flag)
+
+**Impact:** Users may be confused whether seeding is default or opt-in  
+**Recommendation:** Update SETUP.md to clarify seeding is **always enabled** during setup
+
+**Verdict:** **BLOCKER** (documentation only)
+
+---
+
+## Answers to Validation Questions
+
+1. **How many tickets are seeded? Are they all New and unassigned?**  
+   → **15 tickets**, all `TicketState.New`, `AssignedTo = null`, numbers `INC0010001-INC0010015`
+
+2. **Does setup always seed tickets by default, or is it still opt-in?**  
+   → **Always seeds** (Setup-Solution.ps1 line 720 hardcodes the flag), but documentation says "deprecated" which is confusing
+
+3. **Is re-running setup idempotent for ticket seed data (clean re-seed vs duplicate/skip)?**  
+   → **Yes, idempotent**: `ExecuteDeleteAsync` clears tickets before re-seeding. No duplicates possible.
+
+4. **How many KB articles are seeded? Are they reliably applied on fresh database startup?**  
+   → **8 articles** (`KB0001001-KB0001008`), seeded via EF migration + idempotent fallback SQL. **Reliable**.
+
+5. **Does test coverage prove seed behavior sufficiently? If not, identify exact gaps.**  
+   → **Partially sufficient**:
+   - ✅ Ticket reset/seed behavior covered
+   - ⚠️ No test explicitly validates idempotent re-seeding (low risk)
+   - ⚠️ No test validates KB article seed count (moderate risk)
+
+6. **Does Reset-Data.ps1 call the admin endpoint correctly and report seeded counts?**  
+   → **Yes**, correctly POSTs to `/api/admin/reset-data`, passes auth header, reports counts in output
+
+---
+
+## Recommended Next Steps
+
+### Priority 1: Fix Documentation (Blocker)
+- **File:** `SETUP.md:8`
+- **Change:** Remove "optionally" language, clarify seeding is **always enabled** during setup
+- **Reason:** Prevents user confusion
+
+### Priority 2: Add KB Article Seed Test (Moderate)
+- **File:** Create `AgenticResolution.Api.Tests/KnowledgeBaseSeededTests.cs`
+- **Test:** Verify migration seeds exactly 8 articles with correct numbers
+- **Reason:** Explicit validation of KB seeding behavior
+
+### Priority 3: Add Idempotent Re-Seed Test (Low)
+- **File:** `AdminEndpointsTests.cs`
+- **Test:** Call seed endpoint twice, verify count = 15 both times
+- **Reason:** Explicit validation of idempotency contract
+
+---
+
+## Decision Required
+
+**Should the `-SeedSampleTickets` parameter be removed from Setup-Solution.ps1 entirely?**
+
+Currently:
+- Parameter exists but is marked "deprecated"
+- Setup ignores the parameter and always seeds
+- Creates confusion
+
+Options:
+1. **Remove the parameter** - simplest, matches actual behavior
+2. **Make it functional again** - allow users to opt out of seeding
+3. **Keep as-is** - document-only fix
+
+**Recommendation:** Option 1 (remove deprecated parameter)
+
+---
+
+## Test Execution Summary
+
+```
+dotnet test AgenticResolution.Api.Tests --verbosity minimal
+Test summary: total: 22, failed: 0, succeeded: 22, skipped: 0, duration: 3.8s
+✅ All tests passing
+```
+
+---
+
+## Conclusion
+
+System is **seed-ready** for deployment. Ticket seeding (15 tickets) and KB seeding (8 articles) work reliably. Minor gaps exist in test coverage for KB articles and documentation clarity around the `-SeedSampleTickets` flag. These should be addressed before the next release, but are not deployment blockers.
+
+**Deployment Verdict:** ✅ **APPROVED** with documentation fix
+

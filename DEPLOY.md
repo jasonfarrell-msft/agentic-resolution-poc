@@ -8,7 +8,7 @@ This page covers deployment details, infrastructure breakdown, role requirements
 
 | Task | Command |
 |------|---------|
-| **First-time setup** | `.\scripts\Setup-Solution.ps1 -SeedSampleTickets` |
+| **First-time setup** | `.\scripts\Setup-Solution.ps1` |
 | **Update code only** | `azd deploy web` |
 | **Full redeploy** | `azd up` |
 | **Clean up** | `azd down` |
@@ -55,7 +55,7 @@ The `Setup-Solution.ps1` script provides a complete deployment experience that h
 4. **Data Baseline**:
    - Run database migrations on first API startup
    - Reset all tickets to New/unassigned state
-   - Optionally seed 15 sample tickets covering common IT support scenarios
+    - Seed 15 sample tickets covering common IT support scenarios and 8 knowledge base articles
 
 ### What Gets Created
 
@@ -83,7 +83,7 @@ When you run `Setup-Solution.ps1` for the first time, it will:
 - Provision Container Apps infrastructure and build container images
 - Create database users for managed identities with appropriate permissions
 - Reset tickets to New/unassigned baseline state
-- Optionally seed 5 demo tickets
+- Seed 15 demo tickets covering common IT support scenarios and 8 knowledge base articles
 
 **SQL Authentication:** The solution uses Entra (Azure AD) authentication exclusively. The currently signed-in Azure CLI user is configured as the SQL Server admin, and managed identities are granted database access. This ensures compliance with Azure security policies like MCAPS `AzureSQL_WithoutAzureADOnlyAuthentication_Deny`.
 
@@ -108,7 +108,7 @@ To fully reprovision all resources:
 
 ```bash
 azd down
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
+.\scripts\Setup-Solution.ps1
 ```
 
 ## Backend API Deployment
@@ -127,24 +127,6 @@ Container App URLs are printed at the end of setup and configured in the Web App
 
 ## Configuration
 
-### SQL Server Password
-
-The SQL administrator password is required for setup. Provide it via:
-
-**Option 1: Environment variable (recommended for CI/CD)**
-```powershell
-$env:SQL_ADMIN_PASSWORD = "YourSecurePassword123!"
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
-```
-
-**Option 2: Interactive prompt**
-```powershell
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
-# Password will be prompted
-```
-
-**Password requirements:** 12+ characters with uppercase, lowercase, numbers, and special characters.
-
 ### App Settings
 
 The setup script automatically configures the following on the Web App:
@@ -156,7 +138,7 @@ The setup script automatically configures the following on the Web App:
 
 ### Key Vault Secrets
 
-- `sql-connection-string` — Azure SQL Database connection string with SQL authentication
+- `sql-connection-string` — Azure SQL Database connection string with Entra (Azure AD) authentication
 
 The Web App and Container Apps use managed identities with **Key Vault Secrets User** role for secure access.
 
@@ -237,3 +219,5 @@ This will delete the resource group and all resources within it.
 - RBAC (role-based access control) is used for Key Vault access, not access policies
 - SQL Server requires TLS 1.2 minimum
 - App Service enforces HTTPS-only connections
+
+

@@ -1,6 +1,6 @@
 # Project Decisions — Agentic Resolution
 
-**Last Updated:** 2026-05-07  
+**Last Updated:** 2026-05-11  
 **Status:** Active decisions (deduplicated, consolidated from .squad/decisions/inbox/)
 
 ---
@@ -20,6 +20,7 @@
 12. [Azure SQL Entra-Only Authentication (MCAPS Compliance)](#sql-entra-auth)
 13. [Entra Auth Verification - No Code Changes Needed](#entra-auth-verification)
 14. [Azure OpenAI Data-Plane RBAC for Resolution API](#azure-openai-rbac)
+15. [Documentation Update: Entra-Only SQL Authentication](#docs-entra-setup)
 
 ---
 
@@ -1029,6 +1030,67 @@ The managed identity `id-resolution-agent-resolution-test2` (principal `c6b82506
 
 ---
 
+## Documentation Update: Entra-Only SQL Authentication
+
+**Date:** 2026-05-11  
+**Author:** Bob (Technical Writer)  
+**Status:** ✅ Completed  
+**Blocks:** DEPLOY blocker resolved
+
+### Decision
+
+Updated SETUP.md, DEPLOY.md, and scripts\README.md to remove all stale references to SQL Server password-based authentication and align documentation with the current Entra-only authentication model.
+
+### Context
+
+Infrastructure refactoring (Bishop/DevOps) migrated Azure SQL from password-based admin authentication to Entra (Azure AD) authentication exclusively. The currently signed-in Azure CLI user is automatically configured as SQL Entra admin during setup. Setup-Solution.ps1 no longer requires or accepts SQL password parameters.
+
+Documentation contained misleading references that would cause operators to waste time on obsolete password requirements and CI/CD steps.
+
+### Changes Made
+
+#### SETUP.md
+- **Removed:** "SQL Password Requirements" section
+- **Updated:** "Deployment Fails Mid-Process" troubleshooting to remove mention of "SQL password complexity"
+- **Retained:** Clear explanation of Entra-only auth in prerequisites and key security features
+
+#### DEPLOY.md
+- **Removed:** Entire "SQL Server Password" section, including environment variable examples and password complexity requirements
+- **Updated:** Key Vault Secrets documentation to specify "Entra (Azure AD) authentication" instead of "SQL authentication"
+- **Fixed:** Sample data count from "5 demo tickets" to "15 demo tickets"
+
+#### scripts\README.md
+- **Removed:** CI/CD password example and `-SqlAdminPassword` parameter documentation
+- **Updated:** CI/CD Usage section to explain script is non-interactive and requires only Azure CLI authentication
+- **Removed:** "SQL password does not meet requirements" troubleshooting section
+- **Fixed:** Sample data count from "5 demo tickets" to "15 demo tickets" with "8 KB articles"
+
+### Validation
+
+**Search results confirm:**
+- No `SQL_ADMIN_PASSWORD` or `SqlAdminPassword` references in SETUP.md, DEPLOY.md, or scripts\README.md
+- All "SQL password requirements" sections removed
+- Remaining "SQL password" mentions correctly state "no SQL passwords" (informative, not obsolete)
+- All sample data references updated to "15 demo tickets" and "8 KB articles"
+
+### Impact
+
+**For operators:**
+- Clear, current instructions aligned with actual deployment process
+- No time wasted on password complexity or environment variable setup
+- Emphasizes single-command setup path with managed identities
+
+**For CI/CD:**
+- Simplified setup: no need for SQL password secrets
+- Script auto-discovers signed-in Azure CLI user as Entra admin
+- Supports fully non-interactive pipeline execution
+
+### Rationale
+
+Documentation is the operator's contract. Stale references to removed features create confusion, support burden, and failed deployments. Operator-focused docs should emphasize the happy path (single-command setup with Entra auth) over obsolete troubleshooting steps.
+
+---
+
 ## Status Summary
 
 | Component | Owner | Status | Date |
@@ -1048,9 +1110,10 @@ The managed identity `id-resolution-agent-resolution-test2` (principal `c6b82506
 | Azure SQL Entra-Only Authentication | Bishop | ✅ Implemented | 2026-05-07 |
 | Entra Auth Verification (.NET API) | Hicks | ✅ No changes needed | 2026-05-07 |
 | Azure OpenAI Data-Plane RBAC | Hicks/Bishop | ✅ Applied to test2 + Automated | 2026-05-08 |
+| Documentation: Entra-Only SQL Auth | Bob | ✅ Updated SETUP + DEPLOY + scripts/README | 2026-05-11 |
 
 ---
 
-**Last Updated:** 2026-05-08  
-**Last consolidated:** 2026-05-08T20:34:35Z  
+**Last Updated:** 2026-05-11  
+**Last consolidated:** 2026-05-11T00:00:00Z
 **Next review:** Verify test2 Resolution API health in production

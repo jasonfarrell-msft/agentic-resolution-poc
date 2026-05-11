@@ -618,3 +618,93 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 **Next:** Test deployment to verify MCAPS policy no longer blocks Azure SQL creation.
 
+
+### 2026-05-08: Deployment Readiness Audit for rg-agent-resolution-test
+
+**Requested by:** Jason Farrell  
+**Task:** Validate deployment readiness without actually deploying; identify blockers before re-running setup to rg-agent-resolution-test.
+
+**Audit scope:**
+- Infrastructure Bicep files (main.bicep, resources.bicep, sqlserver.bicep, keyvault.bicep)
+- Deployment scripts (Setup-Solution.ps1, Configure-DatabaseUsers.ps1, Reset-Data.ps1)
+- Documentation (SETUP.md, DEPLOY.md, scripts\README.md)
+- Search for SQL password/auth remnants
+- Validate Entra-only authentication configuration
+- Check managed identity database user creation
+
+**Findings:**
+
+✅ **Infrastructure: 10/10 PASS**
+- Bicep compiles without errors (`az bicep build` exit 0)
+- `azureADOnlyAuthentication: true` confirmed in sqlserver.bicep line 23
+- Entra admin params (`entraAdminLogin`, `entraAdminObjectId`, `entraAdminTenantId`) flow correctly through all Bicep files
+- Connection string uses `Authentication=Active Directory Default` (no User ID/Password) in resources.bicep line 64
+- No `administratorLogin` or `administratorLoginPassword` parameters in any Bicep files
+- SQL connection string stored in Key Vault with Entra auth syntax
+
+✅ **Scripts: 13/13 PASS**
+- Setup-Solution.ps1 performs all required steps in order:
+  1. Prerequisites validation (Azure CLI, azd, .NET SDK, auth)
+  2. Discover current Azure user via `az ad signed-in-user show` (lines 142-165)
+  3. Persist Entra admin params to azd environment (lines 192-210)
+  4. Run `azd up` to provision foundation (SQL, Key Vault, App Service)
+  5. Create Container Apps Environment and Azure Container Registry
+  6. Build and push API images (`az acr build`)
+  7. Create Container Apps with managed identities
+  8. Grant roles (AcrPull, Key Vault Secrets User, Azure OpenAI User)
+  9. **Configure database users for managed identities** via Configure-DatabaseUsers.ps1 (lines 632-653)
+  10. Wait for API health check (lines 687-706)
+  11. Reset data and seed sample tickets via Reset-Data.ps1
+- Configure-DatabaseUsers.ps1 creates DB users via access token (no password), grants appropriate roles:
+  - API identity: `db_owner` (required for EF migrations on startup)
+  - Web App identity: `db_datareader`, `db_datawriter`
+- Reset-Data.ps1 seeds sample tickets via admin API endpoint (15 tickets covering common IT scenarios)
+
+✅ **Security & Compliance: 8/8 PASS**
+- MCAPS policy `AzureSQL_WithoutAzureADOnlyAuthentication_Deny` compliant
+- No SQL passwords in Bicep, scripts, or Key Vault
+- Managed identities for all app access (API, Web App)
+- Current signed-in Azure CLI user becomes SQL Entra admin automatically
+- Secrets stored in Key Vault (connection string as secret)
+- RBAC-based access control for Key Vault
+
+🟡 **Documentation: BLOCKER — Stale SQL password references**
+
+**Files containing obsolete SQL password content:**
+1. `DEPLOY.md` lines 130-146: "SQL Server Password" section with `$env:SQL_ADMIN_PASSWORD` example
+2. `SETUP.md` lines 79-83: "SQL Password Requirements" section (entire section obsolete)
+3. `scripts\README.md` lines 25-37: `-SqlAdminPassword` parameter documentation (parameter removed)
+4. `scripts\README.md` lines 141-156: Troubleshooting "SQL password does not meet requirements" (no longer applicable)
+
+**Impact:** Users following current docs will:
+- Waste time setting `SQL_ADMIN_PASSWORD` environment variable (script no longer reads it)
+- Report "password not working" issues when authentication is automatic via Entra
+- Attempt to troubleshoot password complexity when authentication mode has fundamentally changed
+
+**Why it's a blocker:** Documentation inaccuracy creates confusion and support burden. Users may not trust that Entra auth is working and attempt workarounds.
+
+**Verdict:** Infrastructure is deployment-ready; documentation must be updated before re-running setup to avoid user confusion.
+
+**Recommended fix:**
+- Remove stale SQL password sections from DEPLOY.md, SETUP.md, scripts\README.md
+- Add prominent note about Entra-only authentication behavior
+- Emphasize that current signed-in Azure CLI user becomes SQL admin automatically
+
+**Technical debt note:** API identity gets `db_owner` role because it runs EF migrations on startup. In production, consider separating migration identity (db_owner, used once) from runtime identity (db_datareader + db_datawriter) and running migrations as part of deployment pipeline.
+
+**Files reviewed:**
+- ✅ infra\main.bicep
+- ✅ infra\resources.bicep
+- ✅ infra\modules\sqlserver.bicep
+- ✅ infra\modules\keyvault.bicep
+- ✅ scripts\Setup-Solution.ps1
+- ✅ scripts\Configure-DatabaseUsers.ps1
+- ✅ scripts\Reset-Data.ps1
+- 🟡 SETUP.md (needs update)
+- 🟡 DEPLOY.md (needs update)
+- 🟡 scripts\README.md (needs update)
+
+**Decision written to:** `.squad\decisions\inbox\bishop-deployment-readiness.md`
+
+**Next:** Update documentation to remove SQL password references, then re-run deployment to rg-agent-resolution-test.
+

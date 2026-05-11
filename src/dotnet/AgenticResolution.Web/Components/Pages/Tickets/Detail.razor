@@ -112,6 +112,41 @@ else
         </div>
     </div>
 
+    @if (HasAiResults(Details.Ticket))
+    {
+        <div class="detail-card mb-4">
+            <h4>AI Resolution</h4>
+            @if (!string.IsNullOrWhiteSpace(Details.Ticket.AgentAction))
+            {
+                <div class="detail-field">
+                    <span class="label">Action Taken</span>
+                    <span>@FormatAgentAction(Details.Ticket.AgentAction)</span>
+                </div>
+            }
+            @if (Details.Ticket.AgentConfidence.HasValue)
+            {
+                <div class="detail-field">
+                    <span class="label">Confidence</span>
+                    <span>@($"{Details.Ticket.AgentConfidence.Value:P0}")</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Details.Ticket.MatchedTicketNumber))
+            {
+                <div class="detail-field">
+                    <span class="label">KB / Source</span>
+                    <span>@Details.Ticket.MatchedTicketNumber</span>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(Details.Ticket.ResolutionNotes))
+            {
+                <div class="detail-field flex-column">
+                    <span class="label">Resolution Notes</span>
+                    <p class="mt-1 mb-0">@Details.Ticket.ResolutionNotes</p>
+                </div>
+            }
+        </div>
+    }
+
     <div class="detail-card mb-4">
         <h4>Comments</h4>
         @if (OrderedComments.Count == 0)
@@ -226,6 +261,20 @@ else
         var state = ticket.State.ToString().Replace("InProgress", "In Progress", StringComparison.Ordinal);
         return !ticket.Status.Equals(state, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool HasAiResults(TicketResponse ticket) =>
+        !string.IsNullOrWhiteSpace(ticket.AgentAction) ||
+        ticket.AgentConfidence.HasValue ||
+        !string.IsNullOrWhiteSpace(ticket.MatchedTicketNumber) ||
+        !string.IsNullOrWhiteSpace(ticket.ResolutionNotes);
+
+    private static string FormatAgentAction(string action) => action switch
+    {
+        "auto_resolved" => "Auto Resolved",
+        "resolved" => "Resolved",
+        "escalated_to_human" => "Escalated to Human",
+        _ => System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(action.Replace("_", " "))
+    };
 
     private static bool IsEscalated(TicketResponse ticket) =>
         ticket.AgentAction?.Equals("escalated_to_human", StringComparison.OrdinalIgnoreCase) == true ||

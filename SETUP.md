@@ -5,7 +5,7 @@
 Deploy the complete solution with:
 
 ```powershell
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
+.\scripts\Setup-Solution.ps1
 ```
 
 This single command provisions all infrastructure, builds containers, configures secrets, and initializes the database in approximately 10–15 minutes.
@@ -31,7 +31,7 @@ This single command provisions all infrastructure, builds containers, configures
 6. **Configures database access** — Creates database users for managed identities with appropriate permissions
 7. **Configures secrets and roles** — SQL connection string (Entra auth) stored in Key Vault, RBAC permissions assigned
 8. **Resets database** — All tickets set to New/unassigned baseline state
-9. **Optionally seeds sample data** — 15 demo tickets covering common IT support scenarios (with `-SeedSampleTickets` flag)
+9. **Seeds sample data** — 15 demo tickets covering common IT support scenarios, plus 8 knowledge base articles
 
 **Key Security Features:**
 - **Entra-only authentication:** Azure SQL Server configured with Entra (Azure AD) authentication only — no SQL passwords
@@ -41,14 +41,14 @@ This single command provisions all infrastructure, builds containers, configures
 
 ## Usage Examples
 
-### Basic setup with sample data (recommended for first-time setup)
+### Standard setup (recommended for first-time setup)
 ```powershell
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
+.\scripts\Setup-Solution.ps1
 ```
 
 ### Custom environment and location
 ```powershell
-.\scripts\Setup-Solution.ps1 -Environment "prod" -Location "westus2" -SeedSampleTickets
+.\scripts\Setup-Solution.ps1 -Environment "prod" -Location "westus2"
 ```
 
 ### Foundation resources only (no Container Apps)
@@ -76,12 +76,6 @@ curl -X GET "https://<net-api-url>/api/tickets"
 
 API URLs are printed at the end of the setup script and stored in the Web App settings.
 
-## SQL Password Requirements
-
-- Minimum 12 characters
-- Must include uppercase, lowercase, numbers, and special characters
-- Example format: use a long random password containing uppercase, lowercase, numbers, and special characters.
-
 ## Troubleshooting
 
 ### Prerequisites Check Fails
@@ -94,7 +88,7 @@ API URLs are printed at the end of the setup script and stored in the Web App se
 
 ### Deployment Fails Mid-Process
 - Check `azd monitor --logs` for detailed error messages
-- Common issues: SQL password complexity, resource naming conflicts, quota limits
+- Common issues: resource naming conflicts, quota limits
 - If a resource conflict occurs, use a unique environment name: `.\scripts\Setup-Solution.ps1 -Environment "dev-$(Get-Random)"`
 
 ### Container Image Build Fails
@@ -121,7 +115,7 @@ To update container images:
 To fully reprovision (recreate all resources):
 ```bash
 azd down
-.\scripts\Setup-Solution.ps1 -SeedSampleTickets
+.\scripts\Setup-Solution.ps1
 ```
 
 ## Security Notes
