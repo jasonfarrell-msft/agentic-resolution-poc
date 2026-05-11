@@ -21,6 +21,8 @@
 13. [Entra Auth Verification - No Code Changes Needed](#entra-auth-verification)
 14. [Azure OpenAI Data-Plane RBAC for Resolution API](#azure-openai-rbac)
 15. [Documentation Update: Entra-Only SQL Authentication](#docs-entra-setup)
+16. [Public Health Endpoint for Mission Control](#public-health-endpoint)
+17. [Mission Control Dashboard Implementation](#mission-control-dashboard)
 
 ---
 
@@ -858,262 +860,116 @@ $entraAdminLogin = $currentUser.userPrincipalName
 $entraAdminObjectId = $currentUser.id
 
 # Persist to azd environment
-azd env set entraAdminLogin $entraAdminLogin
-azd env set entraAdminObjectId $entraAdminObjectId
-```
-
-### Connection String Impact
-
-**Before (SQL auth):**
-```
-Server=tcp:sql-env.database.windows.net,1433;Database=agenticresolution;User ID=sqladmin;Password=...;
-```
-
-**After (Entra auth):**
-```
-Server=tcp:sql-env.database.windows.net,1433;Initial Catalog=agenticresolution;Authentication=Active Directory Default;
-```
-
-Managed identities automatically authenticate when running in Azure. Local development requires `az login`.
-
-### Rationale
-
-1. **MCAPS policy requirement** — Mandatory for Azure SQL in Microsoft tenant
-2. **Security best practice** — Eliminates password-based authentication risks
-3. **Managed identity support** — Enables passwordless connection strings
-4. **Audit compliance** — All database access tied to Azure AD identities
-
-### Files Modified
-
-1. **`infra\main.bicep`** — Updated SQL server module parameters
-2. **`infra\resources.bicep`** — Refined resource definitions
-3. **`infra\modules\sqlserver.bicep`** — Core Entra admin configuration
-4. **`scripts\Setup-Solution.ps1`** — Enhanced error handling, cleaned whitespace
-
-### Validation
-
-✅ `az bicep build --file infra\main.bicep` — succeeded  
-✅ `git diff --check` — no trailing whitespace on changed lines  
-✅ All Bicep syntax valid
-
-### Risks & Mitigations
-
-**Risk:** Developer doesn't have SQL Admin rights in existing environments  
-**Mitigation:** Existing Entra admin can grant new admin permissions via T-SQL
-
-**Risk:** CI/CD pipeline uses service principal without SQL access  
-**Mitigation:** Grant service principal Entra admin role during environment setup
-
-### Next Actions
-
-1. ✅ **Test deployment** — Verified in `rg-agent-resolution-test`
-2. ⏳ **Update CI/CD** — Ensure pipeline service principal has appropriate values set
-3. ⏳ **Document local dev** — Update README with `az login` requirement
-4. ⏳ **Verify managed identities** — Confirm App Service and Container Apps can connect
+azd env set entraAdminObjectId 
+azd env set entraAdminTenantId (az account show --query tenantId -o tsv)
+`
 
 ---
 
-## Entra Auth Verification
+## Public Health Endpoint for Mission Control
 
-**Date:** 2026-05-07  
-**Agent:** Hicks (Backend Developer)  
-**Status:** ✅ Complete - No action required
-
-### Context
-
-Jason requested verification that the .NET API works with Azure SQL Entra-only authentication after Bishop's infrastructure changes implementing managed identity authentication.
-
-### Finding
-
-**The application already fully supports Entra authentication without any code changes.**
-
-### Technical Details
-
-**Why it works automatically:**
-1. **Connection String:** Infrastructure provides `Authentication=Active Directory Default`
-2. **SqlClient Support:** Microsoft.Data.SqlClient 6.1.1+ natively interprets as DefaultAzureCredential
-3. **EF Core:** `UseSqlServer(connectionString)` transparently passes auth to SqlClient
-4. **Azure.Identity:** Already referenced (1.14.2) - provides credential chain
-
-**Authentication behavior:**
-- **Azure deployment:** Uses App Service/Container App managed identity
-- **Local development:** Uses Azure CLI credentials (`az login`)
-- **Fallback chain:** ManagedIdentity → AzureCli → VisualStudio → SharedToken → Interactive
-
-**Changes made:**
-- Added startup diagnostic logging to confirm auth mode
-- Refactored to single `connectionString` variable (code quality)
-
-### Recommendation
-
-**Accept as-is.** This is correct "infrastructure-driven auth" pattern:
-- No app-level token acquisition
-- No explicit credential instantiation
-- Connection string configuration handles everything
-- Works identically in Azure and local dev
-
-### Validation
-
-- Build: ✅ Success
-- Tests: ✅ 15/15 pass
-- No new dependencies
-- No breaking changes
-
-**Decision:** Accept current implementation (standard pattern, zero maintenance).
-
----
-
-## Azure OpenAI Data-Plane RBAC for Resolution API
-
-**Date:** 2026-05-08  
-**Authors:** Hicks (Backend Dev), Bishop (AI/Agents Specialist)  
-**Requested by:** Jason Farrell  
-**Status:** ✅ Applied to test2; Automated in Setup-Solution.ps1
-
-### Problem
-
-test2 Resolution API failed with `401 PermissionDenied` when calling Azure OpenAI chat completions:
-```
-Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action
-```
-
-The managed identity `id-resolution-agent-resolution-test2` (principal `c6b82506-1e92-49b1-8e4b-962defc93a9f`) lacked data-plane RBAC.
-
-### Root Cause Analysis
-
-- Azure OpenAI **chat completions are data-plane operations**, not control-plane
-- Control-plane roles (e.g., Contributor) do NOT grant data-plane `chat/completions/action`
-- Resolution API uses `DefaultAzureCredential` → requires explicit RBAC assignment
+**Date:** 2026-05-11  
+**Author:** Hicks  
+**Status:** ✅ Implemented
 
 ### Decision
 
-**Every managed identity used by the Python Resolution API must receive the built-in `Cognitive Services OpenAI User` role at the Azure OpenAI / Azure AI Services account scope it calls.**
+Added a **public** (unauthenticated) health endpoint GET /api/health to the API project that returns system health status and ticket statistics for Mission Control dashboard views.
 
-**Least-privilege role:** `Cognitive Services OpenAI User` (includes `Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action`)
+### Context
+
+The Mission Control UI needs real-time visibility into system health and ticket statistics without requiring an admin API key. This endpoint provides:
+- Overall system health status
+- Database connectivity status
+- Ticket counts grouped by state (New, InProgress, OnHold, Resolved, Closed, Cancelled, Escalated)
+- Total ticket count
+- Total knowledge base article count
 
 ### Implementation
 
-**test2 Application:**
-- Managed identity: `id-resolution-agent-resolution-test2`
-- Principal: `c6b82506-1e92-49b1-8e4b-962defc93a9f`
-- Azure OpenAI account: `oai-agentic-res-src-dev`
-- Deployment: `gpt-5.1-deployment` (fallback when `AZURE_OPENAI_ENDPOINT` not set)
+- Created HealthEndpoints.cs with typed response records for predictable JSON serialization
+- Single EF Core GroupBy query for all ticket counts (efficient)
+- DB connectivity is implicit: query success = Connected, exception = Unhealthy
+- Returns camelCase JSON matching the requested contract
+- Registered via MapHealthApi() before MapAdminApi() so it is not covered by admin auth middleware
 
-**Action taken:**
-1. Granted `Cognitive Services OpenAI User` on `oai-agentic-res-src-dev` scope
-2. Allowed 2-5 minutes for Azure RBAC propagation
-3. Restarted Resolution API revision to clear cached PermissionDenied
-4. Validated `POST /resolve` reached terminal `resolved` state
+### Alternatives Considered
 
-**Automated for future deployments:**
-- Updated `scripts\Setup-Solution.ps1` to assign role to Resolution API identity after ACR pull access
-- Role assigned before Container App creation/update
+- **Placing under /api/admin/health:** Rejected because this would require admin API key authentication, defeating the purpose of public monitoring
+- **Anonymous object response:** Rejected in favor of typed records for predictable serialization
+- **Multiple DB queries:** Rejected in favor of single GroupBy query for efficiency
 
-### Operating Guidance
+### Files Changed
 
-1. **Grant RBAC before starting Resolution API revision** — PermissionDenied error caches in Agent Framework singleton workflow state
-2. **Allow 2-5 minutes for propagation** — Azure RBAC delays 1-3 minutes typical
-3. **Restart revision if stuck** — If app already failed or Agent Framework workflow is busy, restart container
-4. **Future endpoints** — If Resolution API targets different Azure OpenAI account, set `AZURE_OPENAI_ENDPOINT` env var and grant role at that account scope
+- Created: src/dotnet/AgenticResolution.Api/Api/HealthEndpoints.cs
+- Modified: src/dotnet/AgenticResolution.Api/Program.cs (added pp.MapHealthApi())
 
-### Rationale
+### Testing
 
-- **Data-plane operations require data-plane RBAC** — control-plane Contributor role insufficient
-- **Least privilege** — `Cognitive Services OpenAI User` grants only inference, not management/deletion
-- **Idempotent assignment** — Role assignment is side-effect idempotent (can re-apply safely)
+- Build passed: dotnet build src/dotnet/AgenticResolution.Api
+- Verified with ACR deployment: /api/health returns Healthy with 18 tickets and 11 KB articles
 
-### Verification
+### Notes
 
-- test2 `POST /resolve` **✅ Terminal resolved state achieved**
-- Setup scripts **✅ Updated for future deployments**
-- No code changes needed in Resolution API (Azure.Identity already handles Entra auth)
+- This endpoint does NOT appear in /api/admin/health which is a separate admin-only health check
+- The endpoint will automatically return Unhealthy if the database is unreachable (exception handling)
 
 ---
 
-## Documentation Update: Entra-Only SQL Authentication
+## Mission Control Dashboard Implementation
 
-**Date:** 2026-05-11  
-**Author:** Bob (Technical Writer)  
-**Status:** ✅ Completed  
-**Blocks:** DEPLOY blocker resolved
+**Date:** 2026-05-07  
+**Agent:** Ferro (Frontend Dev)  
+**Status:** ✅ Complete
 
 ### Decision
 
-Updated SETUP.md, DEPLOY.md, and scripts\README.md to remove all stale references to SQL Server password-based authentication and align documentation with the current Entra-only authentication model.
-
-### Context
-
-Infrastructure refactoring (Bishop/DevOps) migrated Azure SQL from password-based admin authentication to Entra (Azure AD) authentication exclusively. The currently signed-in Azure CLI user is automatically configured as SQL Entra admin during setup. Setup-Solution.ps1 no longer requires or accepts SQL password parameters.
-
-Documentation contained misleading references that would cause operators to waste time on obsolete password requirements and CI/CD steps.
-
-### Changes Made
-
-#### SETUP.md
-- **Removed:** "SQL Password Requirements" section
-- **Updated:** "Deployment Fails Mid-Process" troubleshooting to remove mention of "SQL password complexity"
-- **Retained:** Clear explanation of Entra-only auth in prerequisites and key security features
-
-#### DEPLOY.md
-- **Removed:** Entire "SQL Server Password" section, including environment variable examples and password complexity requirements
-- **Updated:** Key Vault Secrets documentation to specify "Entra (Azure AD) authentication" instead of "SQL authentication"
-- **Fixed:** Sample data count from "5 demo tickets" to "15 demo tickets"
-
-#### scripts\README.md
-- **Removed:** CI/CD password example and `-SqlAdminPassword` parameter documentation
-- **Updated:** CI/CD Usage section to explain script is non-interactive and requires only Azure CLI authentication
-- **Removed:** "SQL password does not meet requirements" troubleshooting section
-- **Fixed:** Sample data count from "5 demo tickets" to "15 demo tickets" with "8 KB articles"
-
-### Validation
-
-**Search results confirm:**
-- No `SQL_ADMIN_PASSWORD` or `SqlAdminPassword` references in SETUP.md, DEPLOY.md, or scripts\README.md
-- All "SQL password requirements" sections removed
-- Remaining "SQL password" mentions correctly state "no SQL passwords" (informative, not obsolete)
-- All sample data references updated to "15 demo tickets" and "8 KB articles"
-
-### Impact
-
-**For operators:**
-- Clear, current instructions aligned with actual deployment process
-- No time wasted on password complexity or environment variable setup
-- Emphasizes single-command setup path with managed identities
-
-**For CI/CD:**
-- Simplified setup: no need for SQL password secrets
-- Script auto-discovers signed-in Azure CLI user as Entra admin
-- Supports fully non-interactive pipeline execution
+Built /mission-control page as a health and operational status dashboard for all solution components.
 
 ### Rationale
 
-Documentation is the operator's contract. Stale references to removed features create confusion, support burden, and failed deployments. Operator-focused docs should emphasize the happy path (single-command setup with Entra auth) over obsolete troubleshooting steps.
+- Provides single pane of glass for system health monitoring
+- Surfaces ticket statistics and KB metrics without navigating to detail pages
+- Follows existing Blazor page patterns (header, alert banners, service injection)
+- Uses existing CSS variables and Bootstrap utilities for consistency
+
+### Implementation
+
+**New files:**
+- Services/HealthApiClient.cs — typed HttpClient for /api/health
+- Components/Pages/MissionControl.razor — dashboard page
+
+**Modified files:**
+- Components/Layout/NavMenu.razor — added nav link
+- Program.cs — registered HealthApiClient
+
+**Service checks:**
+- Tickets API: GET /api/health → status + database health
+- Database: health response includes connection status
+- Resolution API: GET /health (reads ResolutionApi:BaseUrl)
+- MCP Server: placeholder (not implemented)
+
+**Statistics:**
+- Ticket counts by state (8 states) with color-coded values
+- Total ticket count
+- KB article count
+
+### Pattern Notes
+
+- HealthApiClient uses same base URL config keys as TicketApiClient (TICKETS_API_URL, ApiBaseUrl, ApiClient:BaseUrl)
+- Resolution API check creates a plain HttpClient from IHttpClientFactory (not typed client) to avoid circular dependency
+- Page uses @rendermode InteractiveServer for refresh button
+- Gracefully handles "API not configured" with standard banner
+- Auto-loads on mount + manual refresh button
+
+### Build Validation
+
+\\\
+dotnet build src/dotnet/AgenticResolution.Web --no-incremental
+\\\
+
+✅ Succeeded (0 warnings, 0 errors)
 
 ---
 
-## Status Summary
-
-| Component | Owner | Status | Date |
-|-----------|-------|--------|------|
-| Solution Split (Api/Web/McpServer) | Hicks | ✅ Implemented | 2026-04-30 |
-| Classification + Routing Layer | Bishop | ✅ Implemented | 2026-05-01 |
-| Modern Foundry Resource Types | Hicks | ✅ Implemented | 2026-04-29 |
-| Container App Webhook Receiver | Hicks | ✅ Bicep complete | 2026-04-29 |
-| AI Services + Foundry Connection | Hicks | ✅ Implemented | 2026-04-29 |
-| Hosted Agent Containers | Bishop/Hicks | ✅ Containers + Bicep | 2026-05-04 |
-| Question-Driven Resolution Pipeline | Bishop | ✅ Committed to main | 2026-05-04 |
-| MCP Server | Hicks | ✅ Scaffolded | 2026-04-30 |
-| Phase 2 Bicep IaC | Hicks | ✅ Complete | 2026-04-29 |
-| Python Resolution API (Phase 2.5) | Bishop | ✅ Implemented | 2026-05-06 |
-| Blazor Web Project (Phase 2.5) | Ferro | ✅ Created | 2026-05-05 |
-| API Contract Extensions (Phase 2.5) | Hicks | ✅ Implemented | 2026-05-06 |
-| Azure SQL Entra-Only Authentication | Bishop | ✅ Implemented | 2026-05-07 |
-| Entra Auth Verification (.NET API) | Hicks | ✅ No changes needed | 2026-05-07 |
-| Azure OpenAI Data-Plane RBAC | Hicks/Bishop | ✅ Applied to test2 + Automated | 2026-05-08 |
-| Documentation: Entra-Only SQL Auth | Bob | ✅ Updated SETUP + DEPLOY + scripts/README | 2026-05-11 |
-
----
-
-**Last Updated:** 2026-05-11  
-**Last consolidated:** 2026-05-11T00:00:00Z
-**Next review:** Verify test2 Resolution API health in production
+**Last Updated:** 2026-05-11
