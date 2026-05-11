@@ -13,9 +13,9 @@ def get_client() -> OpenAIChatCompletionClient:
     if _client is None:
         endpoint = os.environ.get(
             "AZURE_OPENAI_ENDPOINT",
-            "https://oai-agentic-res-src-dev.cognitiveservices.azure.com/"
+            "https://foundry-demo-eus2-mx01.cognitiveservices.azure.com/"
         )
-        model = os.environ.get("AZURE_OPENAI_MODEL", "gpt-5.1-deployment")
+        model = os.environ.get("AZURE_OPENAI_MODEL", "gpt-4.1")
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
         _client = OpenAIChatCompletionClient(
             model=model,
