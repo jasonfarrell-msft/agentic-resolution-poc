@@ -410,6 +410,15 @@ Confirmed endpoint routing: `/tickets` is Blazor UI route; ticket CRUD API is `h
 - Resolved azd prompts (set AZURE_SUBSCRIPTION_ID and AZURE_LOCATION environment variables).
 - Fixed firewall and seeding issues; configured SQL database users and admin API key.
 - **Final validation:** Provisioning state Succeeded; web app HTTP 200; API healthy with database connected; Resolution API `/health` healthy; 15 tickets seeded (INC0010001–INC0010015) in New state.
+
+### 2026-05-11: Public Health Endpoint for Mission Control
+
+- Added new **public** health endpoint `GET /api/health` to `AgenticResolution.Api` that returns system health and ticket statistics without requiring authentication.
+- Created `src/dotnet/AgenticResolution.Api/Api/HealthEndpoints.cs` with typed response records (`HealthResponse`, `DatabaseHealth`) for predictable JSON serialization.
+- Endpoint queries ticket counts grouped by State (single EF Core GroupBy query) and total KB articles; DB connectivity is implicit (query success = Connected, exception = Disconnected/Unhealthy).
+- Returns JSON with camelCase keys: `{ status, timestamp, database: { status, ticketCounts: { new, inProgress, onHold, resolved, closed, cancelled, escalated }, totalTickets, totalKbArticles } }`.
+- Registered via `app.MapHealthApi()` in `Program.cs` above admin endpoints (no auth middleware applied to this endpoint).
+- This endpoint is intended for a Mission Control dashboard view showing real-time system status.
 - Environment ready for testing and integration work.
 
 **Key Learnings:**

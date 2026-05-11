@@ -387,3 +387,29 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
   - `.squad/decisions.md` / "Ferro — Resolving Screen Result Link" (2026-05-07)
   - `.squad/decisions.md` / "Ferro — Ticket Detail Back-to-List Navigation" (2026-05-07)
 - **Status:** Deployed and live
+
+### 2026-05-07 — Mission Control health dashboard page
+- **Purpose:** Built /mission-control page showing real-time service health and operational statistics for all solution components.
+- **Files created:** 
+  - Services/HealthApiClient.cs — typed HttpClient for /api/health endpoint, uses same base URL config as TicketApiClient
+  - Components/Pages/MissionControl.razor — dashboard page with service health cards, ticket statistics grid, KB article count
+- **Files modified:**
+  - Components/Layout/NavMenu.razor — added "🖥️ Mission Control" nav link
+  - Program.cs — registered HealthApiClient as typed HttpClient with same config keys as TicketApiClient
+- **Service health checks:**
+  - Tickets API — healthy if /api/health returns success + status: "healthy"
+  - Database — connected if health response includes database.status: "connected"
+  - Resolution API — healthy if /health endpoint returns success (reads ResolutionApi:BaseUrl from config)
+  - MCP Server — placeholder (not implemented)
+- **Statistics displayed:**
+  - Ticket counts by state (New, In Progress, On Hold, Resolved, Closed, Cancelled, Escalated) with color-coded state values matching existing badge palette
+  - Total ticket count prominently displayed
+  - KB article total from health endpoint
+- **UX patterns:**
+  - Matches existing page header, alert banner, and Bootstrap utility class patterns
+  - Auto-loads on mount, has manual Refresh button
+  - Handles "API not configured" gracefully with standard banner
+  - Shows "Last checked" timestamp
+- **Build:** dotnet build src/dotnet/AgenticResolution.Web --no-incremental succeeded (0 warnings, 0 errors)
+- **Status:** Complete, ready for deployment
+

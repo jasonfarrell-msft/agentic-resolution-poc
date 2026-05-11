@@ -34,6 +34,17 @@ builder.Services.AddHttpClient<TicketApiClient>(client =>
         client.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
     }
 });
+builder.Services.AddHttpClient<HealthApiClient>(client =>
+{
+    var baseUrl = FirstConfigured(
+        builder.Configuration["TICKETS_API_URL"],
+        builder.Configuration["ApiBaseUrl"],
+        builder.Configuration["ApiClient:BaseUrl"]);
+    if (!string.IsNullOrWhiteSpace(baseUrl))
+    {
+        client.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
+    }
+});
 builder.Services.AddHttpClient<ResolutionApiClient>(client =>
 {
     var baseUrl = builder.Configuration["ResolutionApi:BaseUrl"];

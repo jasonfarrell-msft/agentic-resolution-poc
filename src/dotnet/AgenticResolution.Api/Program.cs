@@ -154,6 +154,7 @@ END TRY BEGIN CATCH END CATCH
 app.UseCors("BlazorFrontend");
 app.UseHttpsRedirection();
 app.UseMiddleware<AdminAuthMiddleware>();
+app.MapHealthApi();
 app.MapTicketsApi();
 app.MapKnowledgeBaseApi();
 app.MapAdminApi();

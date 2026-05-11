@@ -1,0 +1,434 @@
+@page "/mission-control"
+@rendermode InteractiveServer
+@inject HealthApiClient HealthClient
+@inject ResolutionApiClient ResolutionClient
+@inject IHttpClientFactory HttpClientFactory
+@inject IConfiguration Configuration
+
+<PageTitle>Mission Control — TicketNow</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Mission Control</h1>
+        <p class="text-muted">System health and operational status.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="RefreshAsync" disabled="@IsLoading">
+        🔄 @(IsLoading ? "Refreshing..." : "Refresh")
+    </button>
+</div>
+
+@if (!HealthClient.IsConfigured)
+{
+    <div class="alert-api-unconfigured">
+        <div class="alert-icon">⚙️</div>
+        <div>
+            <strong>API not configured</strong>
+            <p>The backend API is not reachable. Set <code>ApiClient:BaseUrl</code> in the app configuration to connect.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="mission-control-grid">
+        @* Service Health Cards *@
+        <div class="health-section">
+            <h2 class="section-title">Service Health</h2>
+            <div class="health-cards">
+                <div class="health-card">
+                    <div class="health-card-icon">🎫</div>
+                    <div class="health-card-body">
+                        <div class="health-card-title">Tickets API</div>
+                        <div class="health-card-status">
+                            @if (IsLoading)
+                            {
+                                <span class="badge text-muted">Checking...</span>
+                            }
+                            else if (TicketsApiStatus == ServiceStatus.Healthy)
+                            {
+                                <span class="badge text-success">✓ Healthy</span>
+                            }
+                            else if (TicketsApiStatus == ServiceStatus.Unhealthy)
+                            {
+                                <span class="badge text-danger">✗ Unhealthy</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-muted">? Unknown</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="health-card">
+                    <div class="health-card-icon">🗄️</div>
+                    <div class="health-card-body">
+                        <div class="health-card-title">Database</div>
+                        <div class="health-card-status">
+                            @if (IsLoading)
+                            {
+                                <span class="badge text-muted">Checking...</span>
+                            }
+                            else if (DatabaseStatus == ServiceStatus.Healthy)
+                            {
+                                <span class="badge text-success">✓ Connected</span>
+                            }
+                            else if (DatabaseStatus == ServiceStatus.Unhealthy)
+                            {
+                                <span class="badge text-danger">✗ Disconnected</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-muted">? Unknown</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="health-card">
+                    <div class="health-card-icon">🤖</div>
+                    <div class="health-card-body">
+                        <div class="health-card-title">Resolution API</div>
+                        <div class="health-card-status">
+                            @if (IsLoading)
+                            {
+                                <span class="badge text-muted">Checking...</span>
+                            }
+                            else if (ResolutionApiStatus == ServiceStatus.NotConfigured)
+                            {
+                                <span class="badge text-muted">Not Configured</span>
+                            }
+                            else if (ResolutionApiStatus == ServiceStatus.Healthy)
+                            {
+                                <span class="badge text-success">✓ Healthy</span>
+                            }
+                            else if (ResolutionApiStatus == ServiceStatus.Unhealthy)
+                            {
+                                <span class="badge text-danger">✗ Unhealthy</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-muted">? Unknown</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="health-card">
+                    <div class="health-card-icon">🔌</div>
+                    <div class="health-card-body">
+                        <div class="health-card-title">MCP Server</div>
+                        <div class="health-card-status">
+                            @if (IsLoading)
+                            {
+                                <span class="badge text-muted">Checking...</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-muted">Not Implemented</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Ticket Statistics *@
+        <div class="stats-section">
+            <h2 class="section-title">Ticket Statistics</h2>
+            @if (HealthResponse?.Database?.TicketCounts != null)
+            {
+                var counts = HealthResponse.Database.TicketCounts;
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Total</div>
+                        <div class="stat-value stat-total">@HealthResponse.Database.TotalTickets</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">New</div>
+                        <div class="stat-value stat-new">@counts.New</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">In Progress</div>
+                        <div class="stat-value stat-inprogress">@counts.InProgress</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">On Hold</div>
+                        <div class="stat-value stat-onhold">@counts.OnHold</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Resolved</div>
+                        <div class="stat-value stat-resolved">@counts.Resolved</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Closed</div>
+                        <div class="stat-value stat-closed">@counts.Closed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Cancelled</div>
+                        <div class="stat-value stat-cancelled">@counts.Cancelled</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Escalated</div>
+                        <div class="stat-value stat-escalated">@counts.Escalated</div>
+                    </div>
+                </div>
+            }
+            else if (!IsLoading)
+            {
+                <div class="empty-state">
+                    <p>No ticket statistics available.</p>
+                </div>
+            }
+        </div>
+
+        @* KB Library *@
+        <div class="kb-section">
+            <h2 class="section-title">Knowledge Base Library</h2>
+            @if (HealthResponse?.Database != null)
+            {
+                <div class="kb-stat-card">
+                    <div class="kb-stat-icon">📚</div>
+                    <div>
+                        <div class="kb-stat-label">Total Articles</div>
+                        <div class="kb-stat-value">@HealthResponse.Database.TotalKbArticles</div>
+                    </div>
+                </div>
+            }
+            else if (!IsLoading)
+            {
+                <div class="empty-state">
+                    <p>No KB data available.</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (!IsLoading && LastChecked.HasValue)
+    {
+        <div class="last-checked">
+            Last checked: @LastChecked.Value.ToLocalTime().ToString("MMM d, yyyy h:mm:ss tt")
+        </div>
+    }
+}
+
+@code {
+    private enum ServiceStatus { Unknown, Healthy, Unhealthy, NotConfigured }
+
+    private bool IsLoading = true;
+    private DateTime? LastChecked;
+    private HealthResponse? HealthResponse;
+    private ServiceStatus TicketsApiStatus = ServiceStatus.Unknown;
+    private ServiceStatus DatabaseStatus = ServiceStatus.Unknown;
+    private ServiceStatus ResolutionApiStatus = ServiceStatus.Unknown;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        IsLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            HealthResponse = await HealthClient.GetHealthAsync();
+            LastChecked = DateTime.UtcNow;
+
+            TicketsApiStatus = HealthResponse != null && HealthResponse.Status.Equals("healthy", StringComparison.OrdinalIgnoreCase)
+                ? ServiceStatus.Healthy
+                : ServiceStatus.Unhealthy;
+
+            DatabaseStatus = HealthResponse?.Database?.Status.Equals("connected", StringComparison.OrdinalIgnoreCase) == true
+                ? ServiceStatus.Healthy
+                : ServiceStatus.Unhealthy;
+
+            ResolutionApiStatus = await CheckResolutionApiHealthAsync();
+        }
+        catch
+        {
+            TicketsApiStatus = ServiceStatus.Unhealthy;
+            DatabaseStatus = ServiceStatus.Unknown;
+            ResolutionApiStatus = ServiceStatus.Unknown;
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<ServiceStatus> CheckResolutionApiHealthAsync()
+    {
+        if (!ResolutionClient.IsConfigured)
+        {
+            return ServiceStatus.NotConfigured;
+        }
+
+        try
+        {
+            var baseUrl = Configuration["ResolutionApi:BaseUrl"];
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                return ServiceStatus.NotConfigured;
+            }
+
+            var httpClient = HttpClientFactory.CreateClient();
+            httpClient.BaseAddress = new Uri(baseUrl.Trim(), UriKind.Absolute);
+            httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+            var response = await httpClient.GetAsync("/health");
+            return response.IsSuccessStatusCode ? ServiceStatus.Healthy : ServiceStatus.Unhealthy;
+        }
+        catch
+        {
+            return ServiceStatus.Unhealthy;
+        }
+    }
+}
+
+<style>
+    .mission-control-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .section-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        color: var(--sn-gray-900);
+    }
+
+    .health-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .health-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+    }
+
+    .health-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.25rem 1.5rem;
+        background-color: var(--sn-white);
+        border: 1px solid var(--sn-gray-200);
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 3px rgba(26, 31, 54, 0.06);
+    }
+
+    .health-card-icon {
+        font-size: 2rem;
+        line-height: 1;
+    }
+
+    .health-card-body {
+        flex: 1;
+    }
+
+    .health-card-title {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+        color: var(--sn-gray-900);
+    }
+
+    .health-card-status .badge {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
+
+    .stats-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 1rem;
+    }
+
+    .stat-card {
+        padding: 1rem 1.25rem;
+        background-color: var(--sn-white);
+        border: 1px solid var(--sn-gray-200);
+        border-radius: 0.5rem;
+        text-align: center;
+        box-shadow: 0 1px 3px rgba(26, 31, 54, 0.06);
+    }
+
+    .stat-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sn-gray-600);
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .stat-total { color: var(--sn-gray-900); }
+    .stat-new { color: var(--state-new); }
+    .stat-inprogress { color: var(--state-inprogress); }
+    .stat-onhold { color: var(--sn-orange); }
+    .stat-resolved { color: var(--state-resolved); }
+    .stat-closed { color: var(--state-closed); }
+    .stat-cancelled { color: var(--state-cancelled); }
+    .stat-escalated { color: var(--state-escalated); }
+
+    .kb-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .kb-stat-card {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        padding: 1.5rem 2rem;
+        background-color: var(--sn-white);
+        border: 1px solid var(--sn-gray-200);
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 3px rgba(26, 31, 54, 0.06);
+        max-width: 400px;
+    }
+
+    .kb-stat-icon {
+        font-size: 2.5rem;
+        line-height: 1;
+    }
+
+    .kb-stat-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--sn-gray-600);
+        margin-bottom: 0.4rem;
+    }
+
+    .kb-stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--sn-gray-900);
+    }
+
+    .last-checked {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--sn-gray-200);
+        font-size: 0.85rem;
+        color: var(--sn-gray-600);
+        text-align: center;
+    }
+</style>
