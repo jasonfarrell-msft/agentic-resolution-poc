@@ -579,7 +579,8 @@ if (-not $SkipContainerApps) {
 
     # Get MCP URL
     $mcpFqdn = az containerapp show --name $mcpAppName --resource-group $resourceGroup --query properties.configuration.ingress.fqdn -o tsv
-    $mcpUrl = "https://$mcpFqdn/mcp"
+    $mcpBaseUrl = "https://$mcpFqdn"
+    $mcpUrl = "$mcpBaseUrl/mcp"
     Write-Host "✓ MCP Server Container App created" -ForegroundColor Green
     Write-Host "  URL: $mcpUrl" -ForegroundColor Cyan
 
@@ -713,7 +714,7 @@ if (-not $SkipContainerApps) {
     az webapp config appsettings set `
         --name $webAppName `
         --resource-group $resourceGroup `
-        --settings "ApiClient__BaseUrl=$apiUrl" "ApiBaseUrl=$apiUrl" "ResolutionApi__BaseUrl=$resolutionUrl" `
+        --settings "ApiClient__BaseUrl=$apiUrl" "ApiBaseUrl=$apiUrl" "ResolutionApi__BaseUrl=$resolutionUrl" "McpServer__BaseUrl=$mcpBaseUrl" `
         --only-show-errors | Out-Null
 
     if ($LASTEXITCODE -eq 0) {
