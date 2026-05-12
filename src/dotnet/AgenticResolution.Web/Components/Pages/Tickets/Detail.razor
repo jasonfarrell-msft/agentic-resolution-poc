@@ -3,7 +3,7 @@
 @inject TicketApiClient ApiClient
 @inject NavigationManager Navigation
 
-<PageTitle>Ticket @Number — TicketNow</PageTitle>
+<PageTitle>Ticket @Number — TicketsNow</PageTitle>
 
 @if (!ApiClient.IsConfigured)
 {
@@ -150,8 +150,8 @@ else
                     <button type="button" class="btn-close" @onclick="@(() => StatusChangeSucceeded = false)" aria-label="Close"></button>
                 </div>
             }
-            <div class="d-flex flex-wrap gap-2 align-items-center" @key="Details?.Ticket.State">
-                <select class="form-select form-select-sm w-auto" @bind="SelectedState">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <select class="form-select form-select-sm w-auto" @bind="SelectedState" @bind:event="onchange">
                     @foreach (var state in AvailableStates)
                     {
                         <option value="@state">@FormatState(state)</option>
