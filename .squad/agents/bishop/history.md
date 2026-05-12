@@ -145,6 +145,56 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 ## Learnings
 
+
+
+### 2026-05-12: INC0010019 Failure Root Cause - MCP Tool Invocation 404 Errors
+
+**Ticket:** INC0010019 ("OneDrive files show 'locked by another user' preventing edits")  
+**Issue:** Ticket repeatedly fails to resolve despite previous fixes (workflow lock leak, MCP URL, OpenAI endpoint, KB search)
+
+**Root cause identified:** The MCP server returns HTTP 404 when agents try to call tools via Model Context Protocol. This causes all ticket detail retrieval to fail.
+
+**Evidence:**
+1. MCP logs show `Setting HTTP status code 404` during resolution attempts (01:17:38, 01:22:55, 01:22:56, 01:22:58, 01:23:03 UTC)
+2. Agents explicitly report: "encountered an error with the lookup function"
+3. Ticket details returned are empty (description: "", category: "", priority: "") despite ticket existing in database
+4. Direct API call to `/api/tickets/INC0010019` returns full ticket successfully
+5. Resolution workflow executes but with no data, resulting in:
+   - Classifier misclassifies as REQUEST instead of INCIDENT (can't retrieve ticket to classify)
+   - Request fetch stage returns empty ticket details
+   - Decomposer has no description to analyze (preliminary_confidence: 0.0)
+   - Evaluator assigns 0.0 confidence
+   - Escalation triggers with generic fallback assignment
+
+**Why previous fixes didn't help:**
+- ✅ Workflow lock leak fix - Solved timeout/abandonment, but retrieval was already broken
+- ✅ MCP URL correction - Fixed URL format, but tool routing still broken
+- ✅ Azure OpenAI endpoint - Fixed auth, but agents can't get data to process
+- ✅ KB search multi-word query - KB search works, but agents never get ticket data
+
+**Impact:** All tickets fail to resolve (not just 0019) because agents receive empty data from failed MCP tool calls.
+
+**MCP server configuration verified:**
+- Health endpoint works: `{"status":"Healthy","timestamp":"..."}`
+- Tool definitions exist in TicketTools.cs: get_ticket_by_number, list_tickets, search_tickets, update_ticket
+- Program.cs registers tools: `.WithTools<TicketTools>().WithTools<KnowledgeBaseTools>()`
+- TICKETS_API_URL environment variable is set correctly
+
+**Suspected causes:**
+1. MCP library version mismatch between Agent Framework client and ModelContextProtocol.Server
+2. Tool registration not completing during MCP server startup
+3. MCP HTTP transport routing issue
+4. Agent Framework's MCPStreamableHTTPTool sending requests in unexpected format
+
+**Next steps:**
+1. Add MCP server diagnostic logging to instrument tool registration and invocation
+2. Test MCP tool endpoints manually with raw JSON-RPC requests
+3. Compare MCP protocol versions between Agent Framework and MCP.Server library
+4. Consider fallback: Replace MCP tool calls with direct HTTP calls to Tickets API
+
+**Decision documented:** `.squad/decisions/inbox/bishop-0019-diagnosis.md`
+
+
 ### 2026-05-08: test2 Resolution API Azure OpenAI RBAC repair
 
 **Issue diagnosed:** `ca-res-agent-resolution-test2` used user-assigned identity `id-resolution-agent-resolution-test2` (principal `c6b82506-1e92-49b1-8e4b-962defc93a9f`) and failed at classifier startup because the identity lacked the Azure OpenAI data-plane action `Microsoft.CognitiveServices/accounts/OpenAI/deployments/chat/completions/action`.
