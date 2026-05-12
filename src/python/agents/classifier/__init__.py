@@ -25,10 +25,12 @@ After retrieving the ticket, respond with one of:
 
 Always include the ticket number in your response."""
 
-agent = Agent(
-    get_client(),
-    name="ClassifierAgent",
-    description="Classifies IT tickets as Incidents or Service Requests",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
+
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="ClassifierAgent",
+        description="Classifies IT tickets as Incidents or Service Requests",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )

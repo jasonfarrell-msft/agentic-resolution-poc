@@ -94,10 +94,11 @@ CRITICAL REMINDERS:
 - Synthesize answers — do not dump raw KB text
 - Reference KB article titles in kb_sources"""
 
-agent = Agent(
-    get_client(),
-    name="RequestDecomposer",
-    description="Fulfillment-oriented decomposer: prerequisites, procedure, approval, and verification questions for service request tickets",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="RequestDecomposer",
+        description="Fulfillment-oriented decomposer: prerequisites, procedure, approval, and verification questions for service request tickets",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )

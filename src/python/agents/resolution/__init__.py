@@ -25,10 +25,12 @@ Always report the ticket number, the resolution applied, and the confidence scor
 Format: "✅ Ticket [NUMBER] resolved with confidence [SCORE]. Resolution applied: [SUMMARY]"
 """
 
-agent = Agent(
-    get_client(),
-    name="ResolutionAgent",
-    description="Applies approved resolutions to tickets and marks them complete via MCP",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
+
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="ResolutionAgent",
+        description="Applies approved resolutions to tickets and marks them complete via MCP",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )

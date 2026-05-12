@@ -53,11 +53,12 @@ Steps:
 
 Report: which assignee you selected, their group, why, and their email."""
 
-agent = Agent(
-    get_client(),
-    name="EscalationAgent",
-    description="Assigns low-confidence tickets to human support specialists via MCP",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
 
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="EscalationAgent",
+        description="Assigns low-confidence tickets to human support specialists via MCP",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )

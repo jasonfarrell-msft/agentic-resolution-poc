@@ -66,7 +66,8 @@ async def classify_ticket(
     else:
         ticket_number = str(msg).strip()
 
-    from agents.classifier import agent as classifier_agent
+    from agents.classifier import create_agent as _create_classifier
+    classifier_agent = _create_classifier()
 
     result = await _agent_retry(classifier_agent.run)(
         f"Please classify ticket number: {ticket_number}"
@@ -95,7 +96,8 @@ async def fetch_incident_details(
     ctx: WorkflowContext[TicketDetails],
 ) -> None:
     """Fetch ticket details for incident (no KB search)."""
-    from agents.incident import agent as incident_agent
+    from agents.incident import create_agent as _create_incident
+    incident_agent = _create_incident()
 
     result = await _agent_retry(incident_agent.run)(
         f"Retrieve ticket details for incident: {msg.ticket_number}"
@@ -119,7 +121,8 @@ async def fetch_request_details(
     ctx: WorkflowContext[TicketDetails],
 ) -> None:
     """Fetch ticket details for service request (no KB search)."""
-    from agents.request import agent as request_agent
+    from agents.request import create_agent as _create_request
+    request_agent = _create_request()
 
     result = await _agent_retry(request_agent.run)(
         f"Retrieve ticket details for service request: {msg.ticket_number}"
@@ -170,7 +173,8 @@ async def decompose_incident(
     ctx: WorkflowContext[ResolutionAnalysis],
 ) -> None:
     """IncidentDecomposer: diagnosis-oriented KB search for incidents."""
-    from agents.incident_decomposer import agent as incident_decomposer_agent
+    from agents.incident_decomposer import create_agent as _create_incident_decomposer
+    incident_decomposer_agent = _create_incident_decomposer()
 
     result = await _agent_retry(incident_decomposer_agent.run)(
         _build_decomposer_prompt(msg, "incident")
@@ -196,7 +200,8 @@ async def decompose_request(
     ctx: WorkflowContext[ResolutionAnalysis],
 ) -> None:
     """RequestDecomposer: fulfillment-oriented KB search for service requests."""
-    from agents.request_decomposer import agent as request_decomposer_agent
+    from agents.request_decomposer import create_agent as _create_request_decomposer
+    request_decomposer_agent = _create_request_decomposer()
 
     result = await _agent_retry(request_decomposer_agent.run)(
         _build_decomposer_prompt(msg, "service request")
@@ -271,7 +276,8 @@ async def apply_resolution(
     ctx: WorkflowContext[str],
 ) -> None:
     """Confidence >= threshold: ResolutionAgent marks the ticket complete."""
-    from agents.resolution import agent as resolution_agent
+    from agents.resolution import create_agent as _create_resolution
+    resolution_agent = _create_resolution()
 
     result = await _agent_retry(resolution_agent.run)(
         f"Apply resolution to ticket {msg.ticket_number}. "
@@ -288,7 +294,8 @@ async def escalate_to_human(
     ctx: WorkflowContext[str],
 ) -> None:
     """Confidence < threshold: EscalationAgent assigns to a human specialist."""
-    from agents.escalation import agent as escalation_agent
+    from agents.escalation import create_agent as _create_escalation
+    escalation_agent = _create_escalation()
 
     result = await _agent_retry(escalation_agent.run)(
         f"Escalate ticket {msg.ticket_number} to a human agent. "

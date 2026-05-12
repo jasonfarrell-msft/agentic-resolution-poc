@@ -94,10 +94,11 @@ CRITICAL REMINDERS:
 - Synthesize answers — do not dump raw KB text
 - Reference KB article titles in kb_sources"""
 
-agent = Agent(
-    get_client(),
-    name="IncidentDecomposer",
-    description="Diagnosis-oriented decomposer: root cause, scope, recovery, and validation questions for incident tickets",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="IncidentDecomposer",
+        description="Diagnosis-oriented decomposer: root cause, scope, recovery, and validation questions for incident tickets",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )

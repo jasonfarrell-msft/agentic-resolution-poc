@@ -28,11 +28,12 @@ IMPORTANT:
 - Do NOT search the knowledge base — that happens in a later stage.
 - Do NOT attempt to resolve the ticket — just retrieve the data."""
 
-agent = Agent(
-    get_client(),
-    name="RequestAgent",
-    description="Retrieves ticket details and KB article content for downstream evaluation",
-    instructions=SYSTEM_PROMPT,
-    tools=[create_mcp_tool()],
-)
 
+def create_agent() -> Agent:
+    return Agent(
+        get_client(),
+        name="RequestAgent",
+        description="Retrieves ticket details and KB article content for downstream evaluation",
+        instructions=SYSTEM_PROMPT,
+        tools=[create_mcp_tool()],
+    )
