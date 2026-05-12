@@ -135,6 +135,39 @@ else
         </div>
 
         <div class="detail-card">
+            <h4>Change Status</h4>
+            @if (!string.IsNullOrWhiteSpace(StatusChangeError))
+            {
+                <div class="alert alert-danger alert-dismissible fade show mb-2" role="alert">
+                    @StatusChangeError
+                    <button type="button" class="btn-close" @onclick="@(() => StatusChangeError = null)" aria-label="Close"></button>
+                </div>
+            }
+            @if (StatusChangeSucceeded)
+            {
+                <div class="alert alert-success alert-dismissible fade show mb-2" role="alert">
+                    Status updated successfully.
+                    <button type="button" class="btn-close" @onclick="@(() => StatusChangeSucceeded = false)" aria-label="Close"></button>
+                </div>
+            }
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <select class="form-select form-select-sm w-auto" @bind="SelectedState">
+                    @foreach (var state in AvailableStates)
+                    {
+                        <option value="@state">@FormatState(state)</option>
+                    }
+                </select>
+                <button class="btn btn-sm btn-outline-primary" @onclick="ChangeStatusAsync" disabled="@(IsChangingStatus || SelectedState == Details.Ticket.State)">
+                    @if (IsChangingStatus)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    Apply
+                </button>
+            </div>
+        </div>
+
+        <div class="detail-card">
             <h4>Description</h4>
             <p>@(string.IsNullOrWhiteSpace(Details.Ticket.Description) ? "No additional description provided." : Details.Ticket.Description)</p>
         </div>
@@ -213,6 +246,10 @@ else
     private string? AbandonErrorMessage;
     private bool AbandonSucceeded;
     private bool IsAbandoning;
+    private string? StatusChangeError;
+    private bool StatusChangeSucceeded;
+    private bool IsChangingStatus;
+    private TicketState SelectedState;
     private CancellationTokenSource? _loadCts;
 
     protected override async Task OnParametersSetAsync()
@@ -244,6 +281,10 @@ else
         try
         {
             Details = await ApiClient.GetTicketDetailsAsync(number, cancellationToken);
+            if (Details is not null)
+            {
+                SelectedState = Details.Ticket.State;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -340,6 +381,39 @@ else
     private static bool IsEscalated(TicketResponse ticket) =>
         ticket.AgentAction?.Equals("escalated_to_human", StringComparison.OrdinalIgnoreCase) == true ||
         ticket.Status?.Equals("Escalated", StringComparison.OrdinalIgnoreCase) == true;
+
+    private async Task ChangeStatusAsync()
+    {
+        if (IsChangingStatus || Details is null) return;
+
+        StatusChangeError = null;
+        StatusChangeSucceeded = false;
+        IsChangingStatus = true;
+
+        try
+        {
+            await ApiClient.UpdateTicketStatusAsync(Details.Ticket.Id, SelectedState);
+            StatusChangeSucceeded = true;
+            await StartLoadingDetailsAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusChangeError = ex.Message;
+        }
+        finally
+        {
+            IsChangingStatus = false;
+        }
+    }
+
+    private static IEnumerable<TicketState> AvailableStates =>
+        Enum.GetValues<TicketState>();
+
+    private static string FormatState(TicketState state) => state switch
+    {
+        TicketState.InProgress => "In Progress",
+        _ => state.ToString()
+    };
 
     public void Dispose()
     {

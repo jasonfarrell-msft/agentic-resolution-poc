@@ -98,6 +98,14 @@ public sealed class TicketApiClient
         return await ReadRequiredAsync<KnowledgeArticleDetailResponse>(response, cancellationToken);
     }
 
+    public async Task<TicketResponse> UpdateTicketStatusAsync(
+        Guid id, TicketState newState, CancellationToken cancellationToken = default)
+    {
+        var body = new { state = newState.ToString(), resolutionNotes = (string?)null };
+        var response = await _httpClient.PutAsJsonAsync($"api/tickets/{id}", body, JsonOptions, cancellationToken);
+        return await ReadRequiredAsync<TicketResponse>(response, cancellationToken);
+    }
+
     public async Task<TicketResponse> AbandonWorkflowAsync(
         string number, CancellationToken cancellationToken = default)
     {
