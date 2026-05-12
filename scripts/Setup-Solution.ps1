@@ -677,7 +677,7 @@ if (-not $SkipContainerApps) {
             --resource-group $resourceGroup `
             --image $resolutionImageName `
             --min-replicas 1 `
-            --set-env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpUrl" `
+            --set-env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpBaseUrl" "AZURE_OPENAI_ENDPOINT=$openAiEndpoint" "AZURE_OPENAI_MODEL=gpt-4.1" "AZURE_OPENAI_API_VERSION=2024-12-01-preview" `
             --only-show-errors
     } else {
         az containerapp create `
@@ -692,7 +692,7 @@ if (-not $SkipContainerApps) {
             --user-assigned $resolutionIdentityId `
             --cpu 0.5 --memory 1.0Gi `
             --min-replicas 1 --max-replicas 3 `
-            --env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpUrl" `
+            --env-vars "AZURE_CLIENT_ID=$resolutionIdentityClientId" "MCP_SERVER_URL=$mcpBaseUrl" "AZURE_OPENAI_ENDPOINT=$openAiEndpoint" "AZURE_OPENAI_MODEL=gpt-4.1" "AZURE_OPENAI_API_VERSION=2024-12-01-preview" `
             --only-show-errors
     }
     

@@ -136,6 +136,21 @@ The setup script automatically configures the following on the Web App:
 - `KeyVault__Uri` — Azure Key Vault URI
 - `ASPNETCORE_ENVIRONMENT` — `Production`
 
+### Python Resolution Container Environment
+
+The following env vars are set on the Python Resolution Container App:
+
+- `AZURE_CLIENT_ID` — User-assigned managed identity client ID (for `DefaultAzureCredential`)
+- `MCP_SERVER_URL` — MCP server base URL (no trailing slash, no `/mcp` suffix) — e.g. `https://ca-mcp-<env>.azurecontainerapps.io`
+- `AZURE_OPENAI_ENDPOINT` — Azure AI Foundry endpoint for model inference
+- `AZURE_OPENAI_MODEL` — `gpt-4.1`
+- `AZURE_OPENAI_API_VERSION` — `2024-12-01-preview`
+
+### MCP Server Container Environment
+
+- `TICKETS_API_URL` — .NET Tickets API base URL
+- `AZURE_CLIENT_ID` — MCP server managed identity client ID
+
 ### Key Vault Secrets
 
 - `sql-connection-string` — Azure SQL Database connection string with Entra (Azure AD) authentication
