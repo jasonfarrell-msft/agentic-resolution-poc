@@ -81,6 +81,46 @@
 
 ---
 
+### 2026-05-12: MCP Server Route Conflict and Stale Session Fix
+
+**Requested by:** Jason Farrell  
+**Scope:** Fix two bugs causing MCP tool failures in the resolution workflow.
+
+**Bug 1 — Duplicate GET / route (AmbiguousMatchException → HTTP 500):**
+- Root cause: A previous session added `app.MapGet("/", ...)` as a SSE keepalive workaround, but `app.MapMcp()` already registers a GET / handler. This caused `AmbiguousMatchException` on all GET / requests → HTTP 500.
+- Fix: Removed the `app.MapGet("/", ...)` block entirely from `Program.cs`. `app.MapMcp()` handles GET / correctly for the MCP protocol.
+
+**Bug 2 — MCPStreamableHTTPTool singleton holds stale session ID:**
+- Root cause: `create_mcp_tool()` in `mcp_tools.py` was a lazy singleton (cached in `_mcp_tool` global). Agent modules called it at module load time, embedding a stale session ID in each agent. When the MCP container restarted, all session IDs were invalidated, but the Python container kept the old tool → HTTP 404 on all tool calls.
+- Fix:
+  1. Removed `_mcp_tool` global from `mcp_tools.py` — `create_mcp_tool()` now returns a fresh instance every call.
+  2. Converted all agent modules (classifier, incident, request, resolution, escalation, incident_decomposer, request_decomposer) from module-level `agent = Agent(...)` singletons to `create_agent()` factory functions.
+  3. Updated `workflow/__init__.py` — each workflow function now calls `create_agent()` inside the function body, creating fresh agent+tool instances per workflow execution.
+
+**Deployment:**
+- MCP: `mcp-noroute-20260512131604` → `ca-mcp-agent-resolution-test4` (provisioningState: Succeeded)
+- Python resolution: `res-20260512131712` → `ca-res-agent-resolution-test4` (provisioningState: Succeeded)
+
+**Verification:**
+- POST /resolve for INC0010019 streamed SSE events through all stages without HTTP 500.
+- MCP server logs show no 500 errors (route conflict eliminated); 404s are MCP session protocol responses, not routing failures.
+
+**Files modified:**
+- `src/dotnet/TicketsApi.McpServer/Program.cs` — removed duplicate MapGet("/") block
+- `src/python/shared/mcp_tools.py` — removed singleton caching from `create_mcp_tool()`
+- `src/python/agents/classifier/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/incident/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/request/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/resolution/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/escalation/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/incident_decomposer/__init__.py` — converted to `create_agent()` factory
+- `src/python/agents/request_decomposer/__init__.py` — converted to `create_agent()` factory
+- `src/python/workflow/__init__.py` — workflow functions call `create_agent()` per execution
+
+**Decision documented:** `.squad/decisions/inbox/bishop-mcp-v2-fix.md`
+
+---
+
 ### 2026-05-05: Workflow Progress Instrumentation for Manual Resolution
 
 **Requested by:** Jason Farrell  
@@ -758,3 +798,37 @@ See `bishop-history-archive-2026-05-04.md` for detailed chronology (2026-04-29 t
 
 **Next:** Update documentation to remove SQL password references, then re-run deployment to rg-agent-resolution-test.
 
+
+---
+
+### 2026-05-12: Evaluator "No KB Documentation Found" Root Cause Fix
+
+**Requested by:** Jason Farrell  
+**Scope:** Diagnose and fix why the evaluator stage reports "No KB documentation found" for INC0010019 despite KB0001012 being a perfect match.
+
+**Root Cause (two issues, both in decomposers):**
+
+1. **Wrong tool name in prompts:** Both incident_decomposer and equest_decomposer system prompts instructed the agent to call search_knowledge_base — a tool that does not exist. The actual MCP tool is named search_kb. The agent could not find the tool, so KB searches silently failed and all answers were "No KB documentation found."
+
+2. **Incomplete two-step KB retrieval:** search_kb returns only article titles, categories, and tags — NOT the body text. To read the full resolution steps, the agent must then call get_kb_article. Neither decomposer prompt mentioned this second call, so even if the tool name were correct, agents would have no substantive content to synthesize.
+
+**KB search URL confirmation:**  
+- /api/kb/search?q=... → 404 (route doesn't exist)  
+- /api/kb?q=file → returns 5 articles including KB0001012 ✅  
+- KB0001012 confirmed to contain full step-by-step resolution for "file locked by another user"
+
+**Evaluator architecture (correct as-is):**  
+The evaluator has no tools by design — it's a pure reasoning agent that receives pre-fetched KB data from the decomposer via ResolutionAnalysis. No change needed to the evaluator itself.
+
+**Fixes applied:**
+
+- src/python/agents/incident_decomposer/__init__.py — STEP 3 updated: search_knowledge_base → search_kb; added explicit instruction to call get_kb_article after each search hit; updated CRITICAL REMINDERS
+- src/python/agents/request_decomposer/__init__.py — same changes for request fulfillment path
+
+**Deployment:**  
+- Image: cragentresolutiontest4.azurecr.io/res:res-eval-20260512132928  
+- Container App: ca-res-agent-resolution-test4 — updated, provisioningState: Succeeded
+
+**Commit:** 1eef739 — ix: wire search_kb tool into evaluator/decomposer to enable KB-based confidence scoring
+
+**Expected outcome:** INC0010019 → decomposer calls search_kb("locked OneDrive") → finds KB0001012 → calls get_kb_article("KB0001012") → synthesizes resolution steps → evaluator scores ≥0.80 → auto-resolved.
