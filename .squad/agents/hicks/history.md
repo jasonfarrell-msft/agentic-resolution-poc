@@ -47,6 +47,8 @@
 
 ## Learnings
 
+- **Ticket detail status dropdown fix (2026-05-12):** ✅ **Complete** — Fixed broken status dropdown on ticket detail page. User reported "Apply button is disabled even though the Ticket Status is shown as Escalated" even after changing the dropdown. Root cause: Blazor `@bind` on `<select>` defaults to firing on blur, not on change. When user selected a different state from the dropdown, `SelectedState` wasn't updating until the select lost focus, so the disabled condition `SelectedState == Details.Ticket.State` kept the Apply button disabled. Previous attempt added `@key="Details?.Ticket.State"` which made it worse by tearing down/recreating the component. Fix: Changed `@bind="SelectedState"` to `@bind="SelectedState" @bind:event="onchange"` so binding fires immediately on selection change. Also removed the `@key` directive that was causing unnecessary re-renders. File: `src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor` lines 153-167. Build passed, deployed to `app-agent-resolution-test4-web` in `rg-agent-resolution-test4`. Status 200 verified. Users can now change ticket status via dropdown and Apply button enables immediately on change.
+
 - **Abandon workflow endpoint (2026-05-11):** ✅ **Complete** — Added `POST /api/tickets/{number}/abandon` to reset stuck tickets from `InProgress` back to `New`. User reported that ticket 0018 could not be resolved due to "workflow already in progress" error. Coordinated with Ferro (UI button) and Vasquez (test coverage). Endpoint validates the ticket is in `InProgress` state (returns 400 otherwise), resets it to `New`, and creates a system-generated internal comment documenting the abandonment. Updated `TicketsEndpoints.cs` to add `AbandonWorkflowAsync`, updated `TicketApiClient.cs` in the Web project with corresponding client method. Build passed; full test suite: 31/31 tests passing (9 new abandon-specific tests via Vasquez). This allows users to recover from stuck workflows without manual DB intervention.
 
 - **Azure OpenAI RBAC for Resolution API (2026-05-08):** test2 Resolution API failed with `401 PermissionDenied` on Azure OpenAI chat completions data-plane action. Root cause: managed identity `id-resolution-agent-resolution-test2` lacked `Cognitive Services OpenAI User` role at `oai-agentic-res-src-dev` scope. Granted role, propagation allowed 2-5 min, restarted revision. POST /resolve validated terminal `resolved` state. Updated `scripts\Setup-Solution.ps1` to assign role automatically on future deployments for any environment.
@@ -543,3 +545,40 @@ Added diagnostic logging for operational visibility. No functional behavior chan
 - `azd up` initially blocked on an interactive subscription prompt; stopped that process and set azd defaults plus `AZURE_SUBSCRIPTION_ID`/`AZURE_LOCATION` on the environment before rerun.
 - Setup provisioned infrastructure and both container apps, but the script timed out before seeding after SQL database user configuration was blocked by the client firewall. Added a temporary client firewall rule, ran `Configure-DatabaseUsers.ps1`, then removed the rule.
 - Seeded 15 sample tickets through the admin endpoint using a temporary key, then reverted `AdminEndpoints__ApiKey` to `secretref:admin-api-key`. Final validation: API healthy/database connected, web HTTP 200, Resolution API `/health` healthy, 15 tickets seeded.
+
+### 2026-05-12: Setup Script Audit — MCP and Resolution Agent Fixes
+
+**Requested by:** Jason Farrell
+
+**Task:** Verify setup script reflects all Python code changes from the current session that affect deployable artifacts.
+
+#### Audit Findings
+
+**Build strategy: ✅ Already correct**
+- Both Python resolution and .NET MCP server images are built from source via `az acr build` during setup.
+- No hardcoded image tags. Current source files (mcp_tools factory, search_kb fix, MCP route fix) are picked up automatically on next deploy.
+
+**MCP server TICKETS_API_URL: ✅ Correct**
+- Both update and create paths set `TICKETS_API_URL=$apiUrl` and `AZURE_CLIENT_ID=$mcpIdentityClientId`. No change needed.
+
+**MCP_SERVER_URL on resolution container: ❌ Bug found and fixed**
+- Was set to `$mcpUrl` which equals `$mcpBaseUrl/mcp` (had `/mcp` suffix).
+- `shared/mcp_tools.py` passes `MCP_SERVER_URL` directly to `MCPStreamableHTTPTool(url=...)`.
+- Fixed to `$mcpBaseUrl` (base FQDN, no trailing slash, no /mcp suffix).
+- Applied to both the `update` path (`--set-env-vars`) and the `create` path (`--env-vars`).
+
+**Missing OpenAI env vars on resolution container: ❌ Missing, now fixed**
+- `shared/client.py` reads `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_VERSION` from env, with defaults.
+- Defaults point to a dev endpoint — production containers should have explicit overrides so deploys aren't silently using wrong endpoints.
+- `$openAiEndpoint` was already computed in the script (used for RBAC) but never set on the container.
+- Added all three env vars to both update and create paths:
+  - `AZURE_OPENAI_ENDPOINT=$openAiEndpoint`
+  - `AZURE_OPENAI_MODEL=gpt-4.1`
+  - `AZURE_OPENAI_API_VERSION=2024-12-01-preview`
+
+**DEPLOY.md documentation: ❌ Missing, now fixed**
+- Added dedicated "Python Resolution Container Environment" and "MCP Server Container Environment" sections to DEPLOY.md Configuration block.
+
+#### Files Changed
+- `scripts/Setup-Solution.ps1` — Fixed `MCP_SERVER_URL`, added OpenAI env vars (both update+create paths)
+- `DEPLOY.md` — Documented resolution and MCP container env vars
