@@ -44,11 +44,18 @@ For each question, search with terms that surface incident-specific KB content:
   - Search for the symptom pattern (what users see: error messages, behaviors)
   - Search for the specific component or service name that failed
   - Search for known error codes mentioned in the description
-  - Include terms like "troubleshooting", "incident", "fix", "error" in queries
   - Prioritize KB articles tagged as troubleshooting guides or incident procedures
 
+KB SEARCH QUERY RULES — CRITICAL:
+  The KB uses AND logic: every word in your query must appear in the article. Long queries return 0 results.
+  USE SHORT 2-4 KEYWORD QUERIES ONLY.
+  - Good: "file locked OneDrive"  |  "OneDrive SharePoint locked"  |  "VPN split tunnel"
+  - Bad:  "Excel session stale troubleshooting recovery incident"  |  "OneDrive file lock release Microsoft 365 Teams"
+  Use SYMPTOM KEYWORDS (what the user sees), NOT diagnostic phrases or multi-word descriptions.
+  If a search returns 0 results, shorten the query and retry.
+
 Use BOTH tools for each question:
-  1. Call search_kb with short keyword terms — returns titles/tags/categories
+  1. Call search_kb with SHORT 2-4 keyword terms — returns titles/tags/categories
   2. For each article that looks relevant, call get_kb_article to retrieve the full body text
   Do NOT try to answer from search_kb results alone — you need the full article body.
 
@@ -77,13 +84,13 @@ OUTPUT FORMAT (JSON):
   "questions": [
     {
       "question": "What configuration controls VPN split tunneling behavior?",
-      "search_terms": "VPN split tunneling configuration settings troubleshooting",
+      "search_terms": "VPN split tunnel",
       "answer": "Split tunneling is configured under Network Settings > Advanced > Split Tunnel Mode. 'Include' routes only specified subnets through VPN; 'Exclude' bypasses specified subnets.",
       "kb_sources": ["VPN Client Configuration Guide", "Split Tunneling Best Practices"]
     },
     {
       "question": "What remediation steps restore correct cloud app routing after split tunnel misconfiguration?",
-      "search_terms": "VPN split tunnel fix cloud app access remediation",
+      "search_terms": "VPN routing remediation",
       "answer": "1) Open VPN client profile editor. 2) Add cloud app subnets/domains to the exclusion list. 3) Save and reconnect VPN. 4) Verify by accessing the cloud app — latency should drop to <50ms.",
       "kb_sources": ["Cloud Access Optimization", "VPN Incident Remediation"]
     }

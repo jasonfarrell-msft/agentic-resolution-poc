@@ -44,11 +44,18 @@ For each question, search with terms that surface fulfillment-specific KB conten
   - Search for the service, software, or access being requested by name
   - Search for onboarding and provisioning procedures for that item
   - Search for approval workflows if access or licenses are involved
-  - Include terms like "how-to", "setup", "provision", "request", "onboarding" in queries
   - Prioritize KB articles tagged as how-to guides or request fulfillment procedures
 
+KB SEARCH QUERY RULES — CRITICAL:
+  The KB uses AND logic: every word in your query must appear in the article. Long queries return 0 results.
+  USE SHORT 2-4 KEYWORD QUERIES ONLY.
+  - Good: "VPN access setup"  |  "software install onboarding"  |  "license request approval"
+  - Bad:  "VPN access provisioning new employee onboarding setup request workflow"
+  Use OBJECT KEYWORDS (the thing being requested), NOT procedural phrases or multi-word descriptions.
+  If a search returns 0 results, shorten the query and retry.
+
 Use BOTH tools for each question:
-  1. Call search_kb with short keyword terms — returns titles/tags/categories
+  1. Call search_kb with SHORT 2-4 keyword terms — returns titles/tags/categories
   2. For each article that looks relevant, call get_kb_article to retrieve the full body text
   Do NOT try to answer from search_kb results alone — you need the full article body.
 
@@ -77,13 +84,13 @@ OUTPUT FORMAT (JSON):
   "questions": [
     {
       "question": "What are the approved steps to provision VPN access for a new employee?",
-      "search_terms": "VPN access provisioning new employee onboarding setup",
+      "search_terms": "VPN access onboarding",
       "answer": "1) Submit VPN access form in IT portal. 2) Manager approves via email link. 3) IT provisions account in VPN directory (1–2 business days). 4) User receives credentials by email.",
       "kb_sources": ["VPN Onboarding Guide", "New Employee IT Setup"]
     },
     {
       "question": "Does VPN access require manager approval, and what is the turnaround SLA?",
-      "search_terms": "VPN access approval workflow manager sign-off SLA",
+      "search_terms": "VPN approval SLA",
       "answer": "Manager approval is required for all VPN provisioning requests. Standard SLA is 2 business days from manager approval. Expedited (same-day) available for Director+ with justification.",
       "kb_sources": ["IT Access Request Policy", "VPN Onboarding Guide"]
     }
