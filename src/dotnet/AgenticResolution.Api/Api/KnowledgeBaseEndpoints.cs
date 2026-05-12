@@ -42,11 +42,21 @@ public static class KnowledgeBaseEndpoints
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            string term = q.Trim().ToLower();
-            query = query.Where(a =>
-                a.Title.ToLower().Contains(term) ||
-                a.Body.ToLower().Contains(term) ||
-                (a.Tags != null && a.Tags.ToLower().Contains(term)));
+            // Split into individual words so multi-word queries match articles
+            // containing any of the words, not just the exact phrase
+            var words = q.Trim().ToLower()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct()
+                .ToArray();
+
+            foreach (var word in words)
+            {
+                var w = word; // capture for lambda
+                query = query.Where(a =>
+                    a.Title.ToLower().Contains(w) ||
+                    a.Body.ToLower().Contains(w) ||
+                    (a.Tags != null && a.Tags.ToLower().Contains(w)));
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(category))
