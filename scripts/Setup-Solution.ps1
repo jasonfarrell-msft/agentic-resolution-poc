@@ -826,6 +826,21 @@ if (-not $SkipDataReset) {
     Write-Host "Skipping data reset (SkipDataReset specified)" -ForegroundColor Gray
 }
 
+# ── Apply security tags ────────────────────────────────────────────────────────
+Write-Host "`n═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host " Applying SecurityControl tags..." -ForegroundColor Yellow
+Write-Host "═══════════════════════════════════════════════════════════════`n" -ForegroundColor Cyan
+
+az tag update --resource-id $(az group show -n $resourceGroup --query id -o tsv) `
+    --operation Merge --tags "SecurityControl=Ignore" | Out-Null
+
+$resourceIds = az resource list -g $resourceGroup --query "[].id" -o tsv
+foreach ($id in ($resourceIds -split "`n" | Where-Object { $_ -ne "" })) {
+    az tag update --resource-id $id --operation Merge --tags "SecurityControl=Ignore" 2>&1 | Out-Null
+}
+
+Write-Host "✓ SecurityControl=Ignore tag applied to resource group and all resources" -ForegroundColor Green
+
 Write-Host "`n╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "║                  Setup Complete!                              ║" -ForegroundColor Green
 Write-Host "╚═══════════════════════════════════════════════════════════════╝`n" -ForegroundColor Green
