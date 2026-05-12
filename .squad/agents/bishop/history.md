@@ -832,3 +832,32 @@ The evaluator has no tools by design — it's a pure reasoning agent that receiv
 **Commit:** 1eef739 — ix: wire search_kb tool into evaluator/decomposer to enable KB-based confidence scoring
 
 **Expected outcome:** INC0010019 → decomposer calls search_kb("locked OneDrive") → finds KB0001012 → calls get_kb_article("KB0001012") → synthesizes resolution steps → evaluator scores ≥0.80 → auto-resolved.
+
+
+---
+
+### 2026-05-12: KB Search Query Length Fix
+
+**Requested by:** Jason Farrell  
+**Scope:** Fix incident_decomposer and equest_decomposer calling search_kb 4 times with 8+ word queries that return 0 results due to AND logic.
+
+**Root Cause:**  
+Both decomposer system prompts instructed the agent to include descriptive terms like "troubleshooting", "incident", "fix", "setup", "onboarding", "provision" in every search query. The KB API uses SQL LIKE with AND logic — all words must appear in the article. Queries like "Excel session stale troubleshooting recovery incident" or "OneDrive file lock release Microsoft 365 Teams SharePoint" never match any article.
+
+**KB Endpoint Confirmed:**  
+- /api/kb/search?q=... → 404 (does not exist)  
+- /api/kb?q=file+locked+OneDrive → KB0001012 ✅  
+- /api/kb?q=OneDrive+locked → KB0001012 ✅  
+Short 2-4 keyword queries reliably surface the correct articles.
+
+**Fixes Applied:**  
+- src/python/agents/incident_decomposer/__init__.py — STEP 3 rewritten: removed suggestion to add "troubleshooting/incident/fix/error" to queries; added explicit AND-logic warning; added short query rule (2-4 keywords); added good/bad examples; added retry instruction on 0 results; updated example search_terms in JSON output.
+- src/python/agents/request_decomposer/__init__.py — Same changes for fulfillment path: removed "how-to/setup/provision/request/onboarding" padding advice; same 2-4 keyword rule and examples.
+
+**Deployment:**  
+- Image: cragentresolutiontest4.azurecr.io/res:res-query-20260512134714  
+- Container App: ca-res-agent-resolution-test4 — updated, provisioningState: Succeeded
+
+**Commit:** 755bfe6 — fix: enforce short KB search queries in incident/request decomposer agents
+
+**Expected Outcome:** INC0010019 → decomposer searches "file locked OneDrive" → finds KB0001012 → calls get_kb_article("KB0001012") → synthesizes resolution steps → evaluator scores ≥0.80 → auto-resolved.

@@ -17,6 +17,8 @@
 | 🔧 Hicks | Backend Dev | `.squad/agents/hicks/charter.md` | Active |
 | 🤖 Bishop | AI/Agents Specialist | `.squad/agents/bishop/charter.md` | Active |
 | 🧪 Vasquez | Tester | `.squad/agents/vasquez/charter.md` | Active |
+| 🧪 Drake | E2E Test Engineer | `.squad/agents/drake/charter.md` | Active |
+| 🔒 Hudson | Security Engineer | `.squad/agents/hudson/charter.md` | Active |
 | 📝 Bob | Technical Writer | `.squad/agents/bob/charter.md` | Active |
 | 📋 Scribe | Session Logger | `.squad/agents/scribe/charter.md` | Active |
 | 🔄 Ralph | Work Monitor | `.squad/agents/ralph/charter.md` | Active |

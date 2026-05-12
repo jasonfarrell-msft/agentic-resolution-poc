@@ -432,3 +432,21 @@ Diagnosed `/tickets` returning Blazor shell as expected behavior. Root cause was
 - **Tests:** All 22 API tests passed (AgenticResolution.Api.Tests)
 - **Status:** Complete, ready for deployment
 
+
+
+## [2026-05-12] Branding rename: TicketNow → TicketsNow
+
+**Requested by:** Jason Farrell
+**Task:** Rename every occurrence of "TicketNow" to "TicketsNow" across the Blazor web app.
+
+**Files changed (7):**
+- src/dotnet/AgenticResolution.Web/Components/Layout/NavMenu.razor — brand name span
+- src/dotnet/AgenticResolution.Web/Components/Pages/KnowledgeBase/Article.razor — PageTitle
+- src/dotnet/AgenticResolution.Web/Components/Pages/KnowledgeBase/Index.razor — PageTitle
+- src/dotnet/AgenticResolution.Web/Components/Pages/MissionControl.razor — PageTitle
+- src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Detail.razor — PageTitle
+- src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/Index.razor — PageTitle
+- src/dotnet/AgenticResolution.Web/Components/Pages/Tickets/RunProgress.razor — PageTitle
+
+**Commit:** eat: rename TicketNow to TicketsNow throughout UI
+No case variants (ticket-now, TICKETNOW) found. No infra/root files affected.
