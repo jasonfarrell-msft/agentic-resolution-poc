@@ -47,7 +47,12 @@ For each question, search with terms that surface fulfillment-specific KB conten
   - Include terms like "how-to", "setup", "provision", "request", "onboarding" in queries
   - Prioritize KB articles tagged as how-to guides or request fulfillment procedures
 
-Call search_knowledge_base MULTIPLE TIMES — once per question minimum.
+Use BOTH tools for each question:
+  1. Call search_kb with short keyword terms — returns titles/tags/categories
+  2. For each article that looks relevant, call get_kb_article to retrieve the full body text
+  Do NOT try to answer from search_kb results alone — you need the full article body.
+
+Call search_kb MULTIPLE TIMES — once per question minimum.
 Do NOT search just once with the ticket's short description.
 
 STEP 4 — ANSWER SYNTHESIS
@@ -89,7 +94,8 @@ OUTPUT FORMAT (JSON):
 
 CRITICAL REMINDERS:
 - This is a SERVICE REQUEST — nothing is broken, something needs to be provisioned or granted. Frame every question around fulfillment.
-- Call search_knowledge_base MULTIPLE TIMES (once per question minimum)
+- Call search_kb MULTIPLE TIMES (once per question minimum), then call get_kb_article for each relevant hit
+- search_kb returns only titles/tags — you MUST call get_kb_article to read the full fulfillment steps
 - Refine and retry searches if initial results are not fulfillment-relevant
 - Synthesize answers — do not dump raw KB text
 - Reference KB article titles in kb_sources"""
